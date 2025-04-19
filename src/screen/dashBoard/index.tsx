@@ -8,20 +8,20 @@ import {
   Pressable,
 } from 'react-native';
 import {navigate} from '../../navigation/navigate';
+import { R } from '../../assets';
 const Dashboard = () => {
   return (
     <View style={styles.container}>
       <ImageBackground
         resizeMode={'stretch'}
-        source={require('../../assets/image/bgc.png')}
+        source={R.images.bg_start}
         style={[styles.container, {}]}
       />
       <TouchableOpacity
         style={styles.overlay}
         onPress={() => {
-          navigate('GameStart');
+          navigate('GoldMiner');
           console.log('click');
-          
         }
       }
       />
