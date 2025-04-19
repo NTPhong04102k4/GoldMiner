@@ -9,19 +9,24 @@ import {
   Image,
 } from 'react-native';
 import { R } from '../../assets';
-import { GameItem, HookState } from '../engine';
-
+import { GameItem, HookState } from '../engine/type';
+const {width, height} = Dimensions.get('screen');
+// Giả định rằng trong chế độ ngang: width > height
+const maxLength = Math.sqrt((width * width) / 4 + Math.pow(height - 30, 2));
+const rope=Math.min(500, maxLength * 0.9)
+// Cập nhật GAME_CONFIG
 // Define game configuration constants
 export const GAME_CONFIG = {
   ROPE_MIN_LENGTH: 50,
-  ROPE_MAX_LENGTH: 400,
+  ROPE_MAX_LENGTH:rope , // Giảm từ 400 xuống 300 để không kéo quá dài
   ROPE_WIDTH: 3,
   HOOK_SIZE: 30,
   SWING_ANGLE_MAX: 80,
   SWING_DURATION: 1500, // ms for a full swing
   EXTEND_SPEED: 3, // pixels per ms
-  BASE_RETRACT_SPEED: 5, // pixels per ms
+  BASE_RETRACT_SPEED: 3, // pixels per ms
 };
+
 
 const easing = Easing.inOut(Easing.sin);
 
@@ -39,7 +44,7 @@ interface AnimatedHookProps {
   getRetractionSpeed: (weight: number) => number;
 }
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
 const AnimatedHook: React.FC<AnimatedHookProps> = ({
   hookState,
@@ -110,28 +115,40 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
   }, []);
 
   // Handle hook state changes
-  useEffect(() => {
-    try {
-      if (hookState === 'swinging') {
-        console.log('Starting swinging animation');
-        startSwinging();
-      } else if (hookState === 'extending') {
-        console.log('Starting extending animation');
-        extend();
-      } else if (hookState === 'retracting') {
-        console.log('Starting retracting animation');
-        retract();
-      } else {
-        // Nếu trạng thái không hợp lệ, trở về swinging
-        console.warn('Invalid hook state:', hookState);
-        startSwinging();
+// Cập nhật useEffect xử lý trạng thái hook trong AnimatedHook
+useEffect(() => {
+  try {
+    if (hookState === 'swinging') {
+      console.log('Starting swinging animation');
+      startSwinging();
+    } else if (hookState === 'extending') {
+      console.log('Starting extending animation');
+      extend();
+    } else if (hookState === 'retracting') {
+      console.log('Starting retracting animation');
+      retract();
+    } else if (hookState === 'pulling') {
+      console.log('Hook is pulling - paused momentarily with item');
+      // Khi ở trạng thái 'pulling', chúng ta chỉ dừng lại
+      // và không thực hiện animation nào, đợi engine chuyển sang 'retracting'
+      
+      // Dừng animation đung đưa nếu có
+      if (swingAnimation.current) {
+        swingAnimation.current.stop();
       }
-    } catch (error) {
-      console.error('Error in hook state effect:', error);
-      // Trở về trạng thái an toàn
+      
+      // Không gọi hàm extend hoặc retract để giữ nguyên vị trí hiện tại
+    } else {
+      // Nếu trạng thái không hợp lệ, trở về swinging
+      console.warn('Invalid hook state:', hookState);
       startSwinging();
     }
-  }, [hookState]);
+  } catch (error) {
+    console.error('Error in hook state effect:', error);
+    // Trở về trạng thái an toàn
+    startSwinging();
+  }
+}, [hookState]);
 
   // Check for collisions while extending
   useEffect(() => {
@@ -197,32 +214,43 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
         swingAnimation.current.stop();
       }
   
+      // Lấy kích thước màn hình hiện tại
+      const { height: CURRENT_SCREEN_HEIGHT } = Dimensions.get('screen');
+      
+      // Tính toán độ dài tối đa dựa trên kích thước màn hình
+      // Thường là khoảng 70-75% chiều cao màn hình để không kéo quá xa
+      const dynamicMaxLength = Math.min(
+        GAME_CONFIG.ROPE_MAX_LENGTH,
+        CURRENT_SCREEN_HEIGHT * 0.85
+      );
+      
+      console.log(`Extending rope to ${dynamicMaxLength}px (screen height: ${CURRENT_SCREEN_HEIGHT}px)`);
+  
       // Animate the rope extension
       Animated.timing(ropeLength, {
-        toValue: GAME_CONFIG.ROPE_MAX_LENGTH,
+        toValue: dynamicMaxLength,
         duration:
-          (GAME_CONFIG.ROPE_MAX_LENGTH - GAME_CONFIG.ROPE_MIN_LENGTH) /
+          (dynamicMaxLength - GAME_CONFIG.ROPE_MIN_LENGTH) /
           GAME_CONFIG.EXTEND_SPEED,
         easing: Easing.linear,
-        useNativeDriver: false, // Không sử dụng native driver cho thuộc tính layout
+        useNativeDriver: false,
       }).start(({finished}) => {
         if (finished) {
           onExtendComplete();
         } else {
-          // Nếu animation không kết thúc vì lý do nào đó, vẫn gọi callback
           console.warn('Extension animation did not finish properly');
           onExtendComplete();
         }
       });
     } catch (error) {
       console.error('Error in extend function:', error);
-      // Đảm bảo callback được gọi ngay cả khi có lỗi
       onExtendComplete();
     }
   };
 
   // Retract the hook
  // 1. Thêm xử lý lỗi cho hàm retract
+ // Thay thế hàm retract trong component AnimatedHook để tạo hiệu ứng kéo từ từ
  const retract = () => {
   try {
     // Tránh lỗi khi currentLength chưa được khởi tạo
@@ -237,24 +265,39 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
       ? getRetractionSpeed(caughtItem.weight)
       : GAME_CONFIG.BASE_RETRACT_SPEED;
 
-    // Calculate retraction duration
+    // Calculate retraction duration - Tăng thời gian kéo lên để tạo hiệu ứng kéo chậm
     const retractDistance = Math.max(0, currentLength - GAME_CONFIG.ROPE_MIN_LENGTH);
-    const retractDuration = Math.max(100, retractDistance / retractionSpeed);
+    
+    // Điều chỉnh thời gian kéo dựa trên khối lượng của vật phẩm
+    // Vật phẩm càng nặng, kéo càng chậm
+    let retractDuration = Math.max(100, retractDistance / retractionSpeed);
+    
+    // Điều chỉnh thời gian dựa trên vật phẩm
+    if (caughtItem) {
+      // Tăng thời gian lên tối thiểu 1000ms cho hiệu ứng mượt mà,
+      // và thêm thời gian dựa trên weight để vật nặng kéo chậm hơn
+      retractDuration = Math.max(1000, retractDuration * (1 + caughtItem.weight / 10));
+      console.log(`Retracting with item of weight ${caughtItem.weight}, duration: ${retractDuration}ms`);
+    }
 
-    // Animate the rope retraction
+    // Animate the rope retraction với thời gian đã điều chỉnh
     Animated.timing(ropeLength, {
       toValue: GAME_CONFIG.ROPE_MIN_LENGTH,
       duration: retractDuration,
-      easing: Easing.linear,
+      // Thay đổi easing để tạo hiệu ứng kéo tự nhiên hơn
+      // Ban đầu kéo nhanh sau đó chậm dần
+      easing: caughtItem ? Easing.out(Easing.cubic) : Easing.linear,
       useNativeDriver: false, // Layout properties không thể sử dụng native driver
     }).start(({finished}) => {
       if (finished) {
         // If an item was caught, animate its disappearance
         if (caughtItem) {
           try {
+            // Tăng thời gian biến mất của vật phẩm
             Animated.timing(caughtItemOpacity, {
               toValue: 0,
-              duration: 300,
+              duration: 500, // Tăng từ 300ms lên 500ms
+              easing: Easing.out(Easing.ease),
               useNativeDriver: true, // Opacity có thể sử dụng native driver
             }).start(() => {
               // Reset opacity for next time
@@ -286,7 +329,6 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
   // Get the image source for a caught item
   const getItemSource = (item: GameItem) => {
     if (!item || !item.type) {
-      // Trả về hình ảnh mặc định nếu không có item hoặc không có type
       console.warn('Invalid item or item type in getItemSource');
       return R.images.vang_1;
     }
@@ -306,8 +348,6 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
         return R.images.stone_2;
       case 'tnt':
         return R.images.tnt1;
-      case 'barrel':
-        return R.images.thung;
       default:
         return R.images.vang_1;
     }
@@ -334,7 +374,7 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
               {
                 position: 'absolute',
                 top: ropeLength,
-                marginLeft: -GAME_CONFIG.HOOK_SIZE / 2,
+                // marginLeft: -GAME_CONFIG.HOOK_SIZE / 2,
               },
             ]}>
             <Image
@@ -343,7 +383,6 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
                 width: GAME_CONFIG.HOOK_SIZE,
                 height: GAME_CONFIG.HOOK_SIZE,
               }}
-              resizeMode="contain"
             />
           </Animated.View>
   
@@ -354,9 +393,9 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
                 styles.caughtItem,
                 {
                   position: 'absolute',
-                  top: ropeLength.__getValue() + GAME_CONFIG.HOOK_SIZE / 2,
+                  top: currentLength + GAME_CONFIG.HOOK_SIZE / 2, // Using the tracked state value instead
                   marginLeft: -((caughtItem.width || 30) / 2),
-                  opacity: caughtItemOpacity, // opacity vẫn có thể animated với native driver
+                  opacity: caughtItemOpacity,
                 },
               ]}>
               <Image
@@ -365,7 +404,6 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
                   width: caughtItem.width || 30,
                   height: caughtItem.height || 30,
                 }}
-                resizeMode="contain"
               />
             </Animated.View>
           )}

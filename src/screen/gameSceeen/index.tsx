@@ -1,5 +1,5 @@
 // src/screens/GoldMinerGameScreen.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,13 +9,15 @@ import {
   StatusBar,
   BackHandler,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Orientation from 'react-native-orientation-locker';
 import ImmersiveMode from 'react-native-immersive-mode';
-import { GameItem, GameState, useGameEngine } from '../../component/engine';
 import { R } from '../../assets';
 import AnimatedHook from '../../component/hooks';
+import { GameItem } from '../../component/engine/type';
+import { useGameEngine } from '../../component/engine';
 
 // Game UI components
 const GameHeader = ({ score, targetScore, timeRemaining, level }: {
@@ -45,45 +47,53 @@ const GameHeader = ({ score, targetScore, timeRemaining, level }: {
 );
 
 // Game items display
-const GameItems = ({ items }: { items: GameItem[] }) => (
-  <View style={styles.itemsContainer}>
-    {items.map((item) => {
-      // Skip rendering collected items
-      if (item.collected) return null;
-      
-      // Select image based on item type
-      let source;
-      switch (item.type) {
-        case 'gold1': source = R.images.vang_1; break;
-        case 'gold2': source = R.images.vang_2; break;
-        case 'gold3': source = R.images.vang_3; break;
-        case 'gold4': source = R.images.vang_4; break;
-        case 'rock1': source = R.images.stone_1; break;
-        case 'rock2': source = R.images.stone_2; break;
-        case 'tnt': source = R.images.tnt1; break;
-        case 'barrel': source = R.images.thung; break;
-        default: source = R.images.vang_1;
-      }
-      
-      return (
-        <Image
-          key={item.id}
-          source={source}
-          style={[
-            styles.gameItem,
-            {
-              left: item.x,
-              top: item.y,
-              width: item.width,
-              height: item.height,
-            },
-          ]}
-          resizeMode="contain"
-        />
-      );
-    })}
-  </View>
-);
+const GameItems = React.memo(({ items }: { items: GameItem[] }) => {
+  // Chỉ log một lần khi items thay đổi, không phải mỗi lần render
+  useEffect(() => {
+    console.log('Items updated:', items);
+  }, [items]);
+  
+  return (
+    <View style={styles.itemsContainer}>
+      {items.map((item) => {
+        if (item.collected) return null;
+        
+        let source;
+        switch (item.type) {
+          case 'gold1': source = R.images.vang_1; break;
+          case 'gold2': source = R.images.vang_2; break;
+          case 'gold3': source = R.images.vang_3; break;
+          case 'gold4': source = R.images.vang_4; break;
+          case 'rock1': source = R.images.stone_1; break;
+          case 'rock2': source = R.images.stone_2; break;
+          case 'tnt': source = R.images.tnt1; break;
+          default: source = R.images.vang_1;
+        }
+        
+        return (
+          <Image
+            key={item.id}
+            source={source}
+            style={[
+              styles.gameItem,
+              {
+                left: item.x,
+                top: item.y,
+                width: item.width,
+                height: item.height,
+              },
+            ]}
+            resizeMode="stretch"
+          />
+        );
+      })}
+    </View>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function - chỉ re-render khi items thực sự thay đổi
+  // Nếu items không thay đổi, trả về true để tránh re-render
+  return JSON.stringify(prevProps.items) === JSON.stringify(nextProps.items);
+});
 
 // Level complete overlay
 const LevelCompleteOverlay = ({ score, targetScore, onNext }: {
@@ -223,14 +233,13 @@ useEffect(() => {
   
   // Handle hook extension completion
 // Sau đó, sửa hàm handleExtendComplete
-const handleExtendComplete = () => {
+const handleExtendComplete = useCallback(() => {
   console.log('Hook extension complete, hook state:', gameState.hookState);
   if (gameState.hookState === 'extending' && !gameState.caughtItem) {
     console.log('No item caught, retracting...');
-    // Sử dụng hàm setHookState để chuyển trạng thái
     setHookState('retracting');
   }
-};
+}, [gameState.hookState, gameState.caughtItem, setHookState]);
   
   // Handle hook retraction completion
   const handleRetractComplete = () => {
@@ -323,7 +332,8 @@ const handleExtendComplete = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    width:Dimensions.get('screen').width,
+    height:Dimensions.get('screen').height,
     backgroundColor: '#1A1A2E',
   },
   background: {

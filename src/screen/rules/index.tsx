@@ -31,6 +31,7 @@ const Rules = () => {
 
   return (
     <View style={styles.container}>
+      <StatusBar backgroundColor={'transparent'}/>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>HƯỚNG DẪN GAME ĐÀO VÀNG</Text>
       </View>
@@ -107,7 +108,7 @@ const Rules = () => {
             </View>
             <View style={styles.item}>
               <View style={[styles.itemIcon, styles.bombIcon]}>
-                <Image source={R.images.tnt1} style={styles.mediumIcon} resizeMode={'contain'} />
+                <Image source={R.images.tnt1} style={styles.mediumIcon}/>
               </View>
               <View style={styles.itemInfo}>
                 <Text style={styles.itemName}>Bom</Text>
