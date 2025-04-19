@@ -1,6 +1,6 @@
-import {Dimensions} from 'react-native';
-import {Item, ItemType} from './typeData';
-import {VALUE_TABLE} from './data';
+import { Dimensions } from 'react-native';
+import { Item, ItemType } from './typeData';
+import { VALUE_TABLE } from './data';
 import goldSmall from '../assets/image/gold_small.png';
 import goldMedium from '../assets/image/gold_medium.png';
 import goldLarge from '../assets/image/gold_big.png';
@@ -52,7 +52,7 @@ export const generateItems = (level: number): Item[] => {
     // Lấy ảnh từ imageMap thay vì đường dẫn chuỗi
     const image = imageMap[type]?.[roundedWeight - 1] || imageMap.gold[0];
 
-    items.push({id: i + 1, type, weight, value, image, x, y});
+    items.push({ id: i + 1, type, weight, value, image, x, y });
   }
 
   // Thêm kim cương theo cấp độ
