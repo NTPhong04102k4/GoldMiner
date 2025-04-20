@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useGameEngine } from '../../../component/engine';
+import { useAutoPlayer } from '../../../component/auto';
 
 interface GameHeaderProps {
   score: number;
@@ -18,12 +20,37 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
   isAutoPlayActive,
   onToggleAutoPlay
 }) => {
+  const gameEngine = useGameEngine();
+  const { gameState } = gameEngine;
+  const autoPlayer = useAutoPlayer();
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
+    const getUncollectedItemAngles = () => {
+      const uncollectedItems = gameState.items.filter(item => !item.collected);
+      
+      return uncollectedItems.map(item => ({
+        id: item.id,
+        type: item.type,
+        angle: autoPlayer.calculateTargetAngle(item)
+      }));
+    };
+    const collectByProximity = () => {
+      const itemAngles = getUncollectedItemAngles();
+      
+      const withDistance = itemAngles.map(item => ({
+        ...item,
+        distance: Math.abs(gameState.hookAngle - item.angle)
+      }));
+      
+      const sorted = withDistance.sort((a, b) => a.distance - b.distance);
+      
+      const itemIds = sorted.map(item => item.id);
+      
+      autoPlayer.deployHookToItems(itemIds);
+    };  
   return (
     <View style={styles.container}>
       <View style={styles.row}>

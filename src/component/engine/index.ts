@@ -2,80 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameItem, GameState, HookState, ItemType } from './type';
 import { Dimensions } from 'react-native';
 import { GAME_CONFIG } from '../hooks';
+import { LEVEL_CONFIGS } from './data';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('screen');
 
-// Updated level configurations to be more like classic Gold Miner
-const LEVEL_CONFIGS = [
-  // Level 1 - Basic introduction
-  {
-    targetScore: 650,
-    timeLimit: 60,
-    items: [
-      { type: 'gold1', count: 4, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
-      { type: 'rock1', count: 4, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 2, valueRange: [30, 50], weightRange: [6, 8] },
-    ],
-  },
-  // Level 2 - Introduce higher value gold
-  {
-    targetScore: 1200,
-    timeLimit: 60,
-    items: [
-      { type: 'gold1', count: 3, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 3, valueRange: [200, 250], weightRange: [3, 4] },
-      { type: 'gold3', count: 1, valueRange: [500, 600], weightRange: [5, 6] },
-      { type: 'rock1', count: 3, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [6, 8] },
-      { type: 'tnt', count: 1, valueRange: [-150, -100], weightRange: [1, 1] },
-    ],
-  },
-  // Level 3 - Introduce the diamond (gold4)
-  {
-    targetScore: 1800,
-    timeLimit: 60,
-    items: [
-      { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 3, valueRange: [200, 250], weightRange: [3, 4] },
-      { type: 'gold3', count: 2, valueRange: [500, 600], weightRange: [5, 6] },
-      { type: 'gold4', count: 1, valueRange: [1000, 1200], weightRange: [8, 10] },
-      { type: 'rock1', count: 2, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 2, valueRange: [30, 50], weightRange: [6, 8] },
-      { type: 'tnt', count: 2, valueRange: [-200, -150], weightRange: [1, 1] },
-    ],
-  },
-  // Level 4 - Challenging level with time pressure
-  {
-    targetScore: 2500,
-    timeLimit: 50, // Less time
-    items: [
-      { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
-      { type: 'gold3', count: 2, valueRange: [500, 600], weightRange: [5, 6] },
-      { type: 'gold4', count: 1, valueRange: [1000, 1200], weightRange: [8, 10] },
-      { type: 'rock1', count: 3, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [7, 9] },
-      { type: 'tnt', count: 3, valueRange: [-250, -200], weightRange: [1, 1] },
-    ],
-  },
-  // Level 5 - Final challenge
-  {
-    targetScore: 3500,
-    timeLimit: 45, // Even less time
-    items: [
-      { type: 'gold1', count: 1, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
-      { type: 'gold3', count: 3, valueRange: [500, 600], weightRange: [5, 6] },
-      { type: 'gold4', count: 2, valueRange: [1000, 1500], weightRange: [8, 10] },
-      { type: 'rock1', count: 2, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [7, 9] },
-      { type: 'tnt', count: 3, valueRange: [-300, -250], weightRange: [1, 1] },
-    ],
-  },
-];
-
-// Game engine hook
 export const useGameEngine = () => {
   // Game state
   const [gameState, setGameState] = useState<GameState>({
@@ -95,18 +25,6 @@ export const useGameEngine = () => {
   // Timers
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hookTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Sound effect references (mock for now)
-  const soundRefs = useRef({
-    swing: null,
-    extend: null,
-    catch: null,
-    retract: null,
-    collect: null,
-    explode: null,
-  });
-
-  // Generate random items for the level with improved positioning
   const generateItems = (levelIndex: number): GameItem[] => {
     const levelConfig = LEVEL_CONFIGS[levelIndex] || LEVEL_CONFIGS[LEVEL_CONFIGS.length - 1];
     const items: GameItem[] = [];
@@ -198,28 +116,21 @@ export const useGameEngine = () => {
 
     // Place items in each zone
     zones.forEach(zone => {
-      // Process each item type in this zone
       zone.itemTypes.forEach(itemConfig => {
-        // Create the specified number of this item type
         for (let i = 0; i < itemConfig.count; i++) {
-          // Get item size
           const { width, height } = getItemSize(itemConfig.type);
 
-          // Try to find a valid position (max 50 attempts)
           let positionFound = false;
           let attempts = 0;
 
           while (!positionFound && attempts < 50) {
             attempts++;
 
-            // Calculate random position within this zone
             const x =
               Math.random() * (playableAreaRight - playableAreaLeft - width) + playableAreaLeft;
             const y = Math.random() * (zone.bottom - zone.top - height) + zone.top;
 
-            // Check if position is valid
             if (isValidPosition(x, y, width, height)) {
-              // Random value and weight within configured range
               const value = Math.floor(
                 Math.random() * (itemConfig.valueRange[1] - itemConfig.valueRange[0] + 1) +
                   itemConfig.valueRange[0]
@@ -230,7 +141,6 @@ export const useGameEngine = () => {
                   itemConfig.weightRange[0]
               );
 
-              // Add item to the list
               items.push({
                 id: `${itemConfig.type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 type: itemConfig.type as ItemType,
@@ -247,7 +157,6 @@ export const useGameEngine = () => {
             }
           }
 
-          // If couldn't find position after 50 attempts, skip this item
           if (!positionFound) {
             console.log(`Could not place ${itemConfig.type}, skipping`);
           }
@@ -259,12 +168,9 @@ export const useGameEngine = () => {
     return items;
   };
 
-  // Start the game
   const startGame = () => {
-    // Generate items for level 1
     const items = generateItems(0);
 
-    // Update game state
     setGameState(prev => ({
       ...prev,
       gameStatus: 'playing',
@@ -280,21 +186,15 @@ export const useGameEngine = () => {
       items,
     }));
 
-    // Start the game timer
     startGameTimer();
-    // Start the hook swinging
     startHookSwinging();
   };
 
-  // Start the next level
   const startNextLevel = () => {
-    // Calculate level index (capped at max level)
     const nextLevelIndex = Math.min(gameState.level, LEVEL_CONFIGS.length - 1);
 
-    // Generate items for the next level
     const items = generateItems(nextLevelIndex);
 
-    // Update game state
     setGameState(prev => ({
       ...prev,
       gameStatus: 'playing',
@@ -309,9 +209,7 @@ export const useGameEngine = () => {
       items,
     }));
 
-    // Start the game timer
     startGameTimer();
-    // Start the hook swinging
     startHookSwinging();
   };
 
@@ -392,7 +290,6 @@ export const useGameEngine = () => {
     }, 1000);
   };
 
-  // Start the hook swinging
   const startHookSwinging = () => {
     console.log('[Engine] Starting hook swinging');
 
@@ -403,9 +300,7 @@ export const useGameEngine = () => {
       hookTimerRef.current = null;
     }
 
-    // Ensure hook state is 'swinging' but keep current angle
     setGameState(prev => {
-      // If state is already swinging, don't change anything
       if (prev.hookState === 'swinging') {
         return prev;
       }

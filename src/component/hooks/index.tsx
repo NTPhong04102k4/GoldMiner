@@ -60,7 +60,7 @@ interface AnimatedHookProps {
   onAngleChange?: (angle: number) => void;
 }
 
-const AnimatedHook: React.FC<AnimatedHookProps> = ({
+export const AnimatedHook: React.FC<AnimatedHookProps> = ({
   hookState,
   caughtItem,
   onExtendComplete,
@@ -600,4 +600,3 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AnimatedHook;
