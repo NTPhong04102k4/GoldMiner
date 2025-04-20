@@ -581,7 +581,14 @@ export const useGameEngine = () => {
       hookState: newHookState,
     }));
   };
-
+  const setHookAngle = (angle: number) => {
+    // Implementation to set the hook angle
+    // This would update the gameState.hookAngle directly
+    setGameState(prev => ({
+      ...prev,
+      hookAngle: angle,
+    }));
+  };
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -595,7 +602,6 @@ export const useGameEngine = () => {
     };
   }, []);
 
-  // Return game state and methods
   return {
     gameState,
     startGame,
@@ -606,10 +612,10 @@ export const useGameEngine = () => {
     calculateHookSpeed,
     updateHookPosition,
     setHookState,
+    setHookAngle,
   };
 };
 
-// Initial game state
 export const GameStateInit: GameState = {
   gameStatus: 'ready',
   level: 1,

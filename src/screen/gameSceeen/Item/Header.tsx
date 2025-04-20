@@ -1,7 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, StatusBar, Platform } from 'react-native';
 import { useGameEngine } from '../../../component/engine';
 import { useAutoPlayer } from '../../../component/auto';
+import { R } from '../../../assets';
+import { height, width } from '../../../component/auto/data';
 
 interface GameHeaderProps {
   score: number;
@@ -28,70 +30,48 @@ export const GameHeader: React.FC<GameHeaderProps> = ({
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-    const getUncollectedItemAngles = () => {
-      const uncollectedItems = gameState.items.filter(item => !item.collected);
-      
-      return uncollectedItems.map(item => ({
-        id: item.id,
-        type: item.type,
-        angle: autoPlayer.calculateTargetAngle(item)
-      }));
-    };
-    const collectByProximity = () => {
-      const itemAngles = getUncollectedItemAngles();
-      
-      const withDistance = itemAngles.map(item => ({
-        ...item,
-        distance: Math.abs(gameState.hookAngle - item.angle)
-      }));
-      
-      const sorted = withDistance.sort((a, b) => a.distance - b.distance);
-      
-      const itemIds = sorted.map(item => item.id);
-      
-      autoPlayer.deployHookToItems(itemIds);
-    };  
   return (
     <View style={styles.container}>
-      <View style={styles.row}>
+      <Image source={R.images.bg2} style={{ height: height * 0.15, width: width, opacity: 0.85, position: "absolute" }} />
+      <View style={{ flexDirection: 'row', justifyContent: "space-between", width: width - 50 }}> <View style={{}}>
         <View style={styles.box}>
-          <Text style={styles.label}>Score</Text>
+          <Text style={styles.label}>Score:</Text>
           <Text style={styles.value}>{score}</Text>
         </View>
-
-        <View style={[styles.box, styles.levelBox]}>
-          <Text style={styles.label}>Level</Text>
-          <Text style={styles.value}>{level}</Text>
-        </View>
-
         <View style={styles.box}>
-          <Text style={styles.label}>Target</Text>
+          <Text style={styles.label}>Target:</Text>
           <Text style={styles.value}>{targetScore}</Text>
         </View>
       </View>
-
-      <View style={styles.row}>
-        <View style={[styles.box, styles.timeBox]}>
-          <Text style={styles.label}>Time</Text>
-          <Text style={[
-            styles.value,
-            timeRemaining <= 10 && styles.timeWarning
-          ]}>
-            {formatTime(timeRemaining)}
-          </Text>
+      <Image source={R.images.player} style={{width:140,height:60, marginTop:-10,marginLeft:80}} resizeMode='contain'/>
+        <View style={{ flexDirection: 'row',gap:12 }}>
+          <TouchableOpacity
+            style={[
+              styles.autoPlayButton,
+              isAutoPlayActive ? styles.autoPlayActive : styles.autoPlayInactive
+            ]}
+            onPress={onToggleAutoPlay}
+          >
+            <Text style={styles.autoPlayText}>
+              {isAutoPlayActive ? 'Auto: ON ' : 'Auto: OFF'}
+            </Text>
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'column',width:80 }}>
+            <View style={[styles.box]}>
+              <Text style={styles.label}>Level</Text>
+              <Text style={styles.value}>{level}</Text>
+            </View>
+          <View style={[styles.box]}>
+            <Text style={styles.label}>Time</Text>
+            <Text style={[
+              styles.value,
+              timeRemaining <= 10 && styles.timeWarning
+            ]}>
+              {formatTime(timeRemaining)}
+            </Text>
+          </View>
+          </View>
         </View>
-
-        <TouchableOpacity
-          style={[
-            styles.autoPlayButton,
-            isAutoPlayActive ? styles.autoPlayActive : styles.autoPlayInactive
-          ]}
-          onPress={onToggleAutoPlay}
-        >
-          <Text style={styles.autoPlayText}>
-            {isAutoPlayActive ? 'Auto: ON' : 'Auto: OFF'}
-          </Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -102,50 +82,40 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     paddingHorizontal: 16,
-    backgroundColor: '#1C1C1C',
-    borderBottomWidth: 1,
-    borderBottomColor: '#333',
   },
   row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
   },
   box: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2C2C2C',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    flex: 1,
-    marginHorizontal: 4,
+    width: 100,
+    justifyContent: "space-between"
   },
   levelBox: {
-    backgroundColor: '#FFD70030',
   },
   timeBox: {
-    flex: 2,
   },
   label: {
-    fontSize: 12,
-    color: '#AAA',
+    fontSize: 14,
+    color: '#ffffff',
     fontWeight: '600',
   },
   value: {
     fontSize: 16,
-    color: '#FFF',
+    color: '#058a2d',
     fontWeight: 'bold',
   },
   timeWarning: {
     color: '#FF5252',
   },
   autoPlayButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    height:28,
+    paddingHorizontal:6,
+    alignSelf:"center",
+    alignItems:'center',
+    justifyContent:'center',
+    paddingVertical:3,
+    borderRadius:20
   },
   autoPlayActive: {
     backgroundColor: '#4CAF50',

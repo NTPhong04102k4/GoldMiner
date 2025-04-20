@@ -22,10 +22,9 @@ const GoldMinerGameScreen: React.FC = () => {
     setHookState
   } = useGameEngine();
 
-  // Chỉ sử dụng một instance của autoPlayer
   const autoPlayer = useAutoPlayer({
-    enabled: true, // Bật auto ngay từ đầu
-    intelligenceLevel: 'expert',
+    enabled: true, 
+    intelligenceLevel: "basic",
     riskTolerance: 0.8,
     preferHighValue: true,
     avoidTNT: true,
@@ -38,64 +37,51 @@ const GoldMinerGameScreen: React.FC = () => {
     startDecisionProcess,
     stopDecisionProcess,
     calculateTargetAngle,
-    deployHookToItems
+    deployHookToItems,
+    deployHookToAngles
   } = autoPlayer;
 
   const hasHookedRef = React.useRef(false);
   const [collectionStarted, setCollectionStarted] = useState(false);
-
-  const handleAngleChange = (angle: number) => {
-    console.log(`[Angle] ${angle.toFixed(2)}, Auto: ${autoPlayerState.enabled}, Collection: ${collectionStarted}`);
-    
-    if (gameState.gameStatus !== 'playing' || !autoPlayerState.enabled) {
-      console.log('[Auto] Not playing or auto disabled');
-      return;
-    }
-    
-    if (!collectionStarted && gameState.hookState === 'swinging') {
-      const uncollectedItems = gameState.items.filter(item => !item.collected);
-      console.log(`[Auto] Found ${uncollectedItems.length} uncollected items`);
-      
-      if (uncollectedItems.length > 0) {
-        // ...logic chọn vật phẩm...
-        
-        console.log(`[Auto] Deploying hook to collect items: ${itemIds.join(', ')}`);
-        setCollectionStarted(true);
-        deployHookToItems(itemIds);
-      }
-    }
-  };
   
-  // Reset trạng thái khi hook quay về vị trí swinging
+const [targetHookAngle, setTargetHookAngle] = useState<number|null>();
+
+
+
+useEffect(() => {
+
+  if (
+    gameState.gameStatus === 'playing' && 
+    autoPlayerState.enabled && 
+    gameState.hookState === 'swinging' && 
+    !collectionStarted
+  ) {
+    const uncollectedItems = gameState.items.filter(item => !item.collected);
+    
+    if (uncollectedItems.length > 0) {
+      // Sắp xếp vật phẩm theo giá trị (từ cao đến thấp)
+      const sortedItems = [...uncollectedItems].sort((a, b) => b.value - a.value);
+      
+      // Lấy vật phẩm có giá trị cao nhất
+      const targetItem = sortedItems[0];
+      
+      // Tính góc đến vật phẩm mục tiêu
+      const targetAngle = calculateTargetAngle(targetItem);
+      
+      console.log(`[Auto] Setting target angle to ${targetAngle.toFixed(1)}° for item ${targetItem.type}`);
+      
+      // Đặt góc mục tiêu
+      setTargetHookAngle(targetAngle);
+      setCollectionStarted(true);
+    }
+  }
+}, [gameState.gameStatus, autoPlayerState.enabled, gameState.hookState, collectionStarted]);
+  
   useEffect(() => {
     if (gameState.hookState === 'swinging') {
       hasHookedRef.current = false;
 
-      // Tiếp tục thu thập nếu vẫn còn vật phẩm và chưa hết thời gian
       if (!gameState.items.every(item => item.collected) && gameState.timeRemaining > 0 && autoPlayerState.enabled) {
-        setCollectionStarted(false); // Reset để bắt đầu lại chu trình thu thập
-      }
-    }
-  }, [gameState.hookState]);
-
-  // Khi chuyển level hoặc game kết thúc, reset trạng thái
-  useEffect(() => {
-    if (gameState.gameStatus !== 'playing') {
-      setCollectionStarted(false);
-    }
-  }, [gameState.gameStatus]);
-  useEffect(() => {
-    if (gameState.timeRemaining < 10) {
-      setConfig({ riskTolerance: 1.0, preferHighValue: false });
-    }
-  }, [gameState.timeRemaining]);
-
-  // Reset trạng thái khi hook quay về vị trí swinging
-  useEffect(() => {
-    if (gameState.hookState === 'swinging') {
-      hasHookedRef.current = false;
-      // Nếu tất cả vật phẩm đã thu thập hoặc thời gian kết thúc, không thu thập nữa
-      if (gameState.items.every(item => item.collected) || gameState.timeRemaining <= 0) {
         setCollectionStarted(false);
       }
     }
@@ -104,9 +90,35 @@ const GoldMinerGameScreen: React.FC = () => {
   useEffect(() => {
     if (gameState.gameStatus !== 'playing') {
       setCollectionStarted(false);
+      setTargetHookAngle(null); 
     }
   }, [gameState.gameStatus]);
+  
+  useEffect(() => {
+    if (gameState.timeRemaining < 10) {
+      setConfig({ riskTolerance: 1.0, preferHighValue: false });
+    }
+  }, [gameState.timeRemaining]);
 
+  useEffect(() => {
+    if (gameState.hookState === 'swinging') {
+      hasHookedRef.current = false;
+      if (gameState.items.every(item => item.collected) || gameState.timeRemaining <= 0) {
+        setCollectionStarted(false);
+        setTargetHookAngle(null); 
+      }
+    }
+  }, [gameState.hookState]);
+  useEffect(() => {
+    if (targetHookAngle !== null && gameState.hookState === 'swinging') {
+      let temp = targetHookAngle === undefined ? 0 : targetHookAngle;
+      if (Math.abs(gameState.hookAngle - temp) <= 10) {
+        console.log(`Deploying hook at ${gameState.hookAngle.toFixed(1)}° (target: ${targetHookAngle}°)`);
+        toggleHook();
+        setTargetHookAngle(null);
+      }
+    }
+  }, [gameState.hookAngle, gameState.hookState, targetHookAngle]);
   const handleExtendComplete = useCallback(() => {
     if (gameState.hookState === 'extending' && !gameState.caughtItem) {
       setHookState('retracting');
@@ -122,7 +134,8 @@ const GoldMinerGameScreen: React.FC = () => {
   const handleItemCaught = (item: GameItem) => {
     console.log('Item caught:', item.type, item.id);
   };
-
+  const handleAngleChange = (angle: number) => {
+  };
   return (
     <TouchableWithoutFeedback onPress={toggleHook}>
       <View style={styles.container}>
@@ -145,7 +158,7 @@ const GoldMinerGameScreen: React.FC = () => {
           checkCollision={updateHookPosition}
           getRetractionSpeed={calculateHookSpeed}
           onItemCaught={handleItemCaught}
-          onAngleChange={handleAngleChange} // Thêm callback này
+          onAngleChange={handleAngleChange} 
         />
         <GameStatusRenderer
           gameStatus={gameState.gameStatus}

@@ -3,6 +3,8 @@ import { GameStatus } from '../../../component/engine/type';
 import { LevelCompleteOverlay } from "./CompleteLevel";
 import { GameOverOverlay } from "./GameOverlay";
 import { StartScreenOverlay } from "./StartGame";
+import { LevelCompleteGame } from './CompleteGme';
+import { navigate } from '../../../navigation/navigate';
 
 interface GameStatusRendererProps {
   gameStatus: GameStatus;
@@ -38,6 +40,12 @@ export const GameStatusRenderer: React.FC<GameStatusRendererProps> = ({
           score={score}
           targetScore={targetScore}
           onRestart={onRestart}
+        />
+      );
+      case 'gameCompleted': 
+      return (
+        <LevelCompleteGame
+          onNext={()=>{navigate('Dashboard')}}
         />
       );
     default:

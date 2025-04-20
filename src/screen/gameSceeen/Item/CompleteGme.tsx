@@ -1,20 +1,21 @@
   import { StyleSheet, TouchableWithoutFeedback, View } from "react-native";
   import { Text } from "react-native-gesture-handler";
 
-  export  const LevelCompleteOverlay = ({ score, targetScore, onNext }: {
-      score: number;
-      targetScore: number;
+  export  const LevelCompleteGame = ({  onNext }: {
+  
       onNext: () => void;
     }) => (
       <View style={styles.overlay}>
         <View style={styles.messageBox}>
-          <Text style={styles.messageTitle}>Level Complete!</Text>
+          <Text style={styles.messageTitle}>
+            Complete
+            </Text>
           <Text style={styles.messageText}>
-            You collected ${score} of ${targetScore} required!
+           That awesome
           </Text>
           <TouchableWithoutFeedback onPress={onNext}>
             <View style={styles.messageButton}>
-              <Text style={styles.messageButtonText}>Next Level</Text>
+              <Text style={styles.messageButtonText}>Go Home</Text>
             </View>
           </TouchableWithoutFeedback>
         </View>

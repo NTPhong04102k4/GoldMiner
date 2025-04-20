@@ -5,7 +5,7 @@ export type ItemType = 'gold1' | 'gold2' | 'gold3' | 'gold4' | 'rock1' | 'rock2'
 export type HookState = 'swinging' | 'extending' | 'retracting' | 'pulling';
 
 // Game status
-export type GameStatus = 'ready' | 'playing' | 'levelCompleted' | 'gameOver';
+export type GameStatus = 'ready' | 'playing' | 'levelCompleted' | 'gameOver' | 'gameCompleted';
 
 // Game item interface
 export interface GameItem {

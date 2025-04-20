@@ -35,7 +35,6 @@ const Rules = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>HƯỚNG DẪN GAME ĐÀO VÀNG</Text>
       </View>
-      
       <ScrollView style={styles.scrollContainer}>
         {/* Banner */}
         <View style={styles.banner}>
@@ -44,8 +43,6 @@ const Rules = () => {
           </View>
           <Text style={styles.bannerText}>Khám phá và đào vàng!</Text>
         </View>
-        
-        {/* Game Introduction */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Giới thiệu</Text>
           <Text style={styles.paragraph}>

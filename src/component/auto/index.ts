@@ -1,7 +1,10 @@
+import { GAME_CONFIG } from './../hooks/index';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameItem } from '../engine/type';
 import { useGameEngine } from '../engine';
 import { height, ITEM_PRIORITIES, width } from './data';
+
+const HOOK_MIN_LENGTH = 10;
 
 const calculateItemScore = (item: GameItem): number => {
   const priorityMultiplier = ITEM_PRIORITIES[item.type] || 0;
@@ -37,14 +40,16 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     targetItem: null as GameItem | null,
     lastActionTime: 0,
     decisionLog: [] as string[],
-    manualAngles: [] as number[], // Thêm mảng lưu góc cần móc
-    manualTargetItems: [] as string[], // Thêm mảng lưu ID vật phẩm cần móc
-    waitingForAngle: false, // Cờ báo đang đợi góc đúng
+    manualAngles: [] as number[],
+    manualTargetItems: [] as string[],
+    waitingForAngle: false,
+    isHookActive: false,
   });
 
   const decisionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const autoplayActiveRef = useRef(playerConfig.enabled);
-  const manualModeRef = useRef(false); // Cờ báo hiệu đang ở chế độ thủ công
+  const manualModeRef = useRef(false);
+  const lastActionTimeRef = useRef(0);
 
   // Log decisions for debugging
   const logDecision = (message: string) => {
@@ -97,44 +102,50 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     return updatedConfig;
   };
 
-  // NEW FUNCTION: Triển khai móc tại một góc cụ thể
   const deployHookAtAngle = (angle: number) => {
-    // Kiểm tra góc hợp lệ
     if (angle < -80 || angle > 80) {
       logDecision(`Invalid angle: ${angle}. Must be between -80 and 80 degrees.`);
       return false;
     }
 
-    // Thêm góc vào danh sách chờ
     setAutoPlayerState(prev => ({
       ...prev,
       manualAngles: [...prev.manualAngles, angle],
       waitingForAngle: true,
     }));
 
-    // Đảm bảo auto player được bật để xử lý
     if (!autoPlayerState.enabled) {
       toggleAutoPlayer();
     } else if (!decisionTimerRef.current) {
       startDecisionProcess();
     }
 
-    manualModeRef.current = true; // Chuyển sang chế độ thủ công
+    manualModeRef.current = true;
     logDecision(`Added manual angle: ${angle}°`);
     return true;
   };
 
-  // NEW FUNCTION: Triển khai móc để kéo các vật phẩm cụ thể theo ID
   const deployHookToItems = (itemIds: string[]) => {
     if (!itemIds.length) {
       logDecision('No item IDs provided');
       return false;
     }
 
+    // Lọc ra những item chưa được thu thập
+    const uncollectedItemIds = itemIds.filter(id => {
+      const item = gameState.items.find(item => item.id === id);
+      return item && !item.collected;
+    });
+
+    if (uncollectedItemIds.length === 0) {
+      logDecision('All specified items have already been collected');
+      return false;
+    }
+
     // Thêm danh sách ID vào danh sách mục tiêu
     setAutoPlayerState(prev => ({
       ...prev,
-      manualTargetItems: [...prev.manualTargetItems, ...itemIds],
+      manualTargetItems: [...prev.manualTargetItems, ...uncollectedItemIds],
     }));
 
     // Đảm bảo auto player được bật để xử lý
@@ -144,12 +155,12 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       startDecisionProcess();
     }
 
-    manualModeRef.current = true; // Chuyển sang chế độ thủ công
-    logDecision(`Added manual target items: ${itemIds.join(', ')}`);
+    manualModeRef.current = true;
+    logDecision(`Added manual target items: ${uncollectedItemIds.join(', ')}`);
     return true;
   };
 
-  // NEW FUNCTION: Triển khai móc tại nhiều góc (theo thứ tự trong mảng)
+  // Deploy hook at multiple angles
   const deployHookToAngles = (angles: number[]) => {
     if (!angles.length) {
       logDecision('No angles provided');
@@ -188,23 +199,40 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       clearInterval(decisionTimerRef.current);
     }
 
-    // Make decisions every 100ms
+    // Make decisions every 50ms
     decisionTimerRef.current = setInterval(() => {
+      // Skip if game isn't playing or auto player is disabled
       if (!autoplayActiveRef.current || gameState.gameStatus !== 'playing') {
+        return;
+      }
+
+      // Skip if hook is not in swinging state (it's moving or in another state)
+      if (gameState.hookState !== 'swinging') {
+        // Reset hook active state when hook returns to swinging state
+        if (autoPlayerState.isHookActive) {
+          setAutoPlayerState(prev => ({
+            ...prev,
+            isHookActive: false,
+          }));
+        }
+        return;
+      }
+
+      // Check for minimum time between hook deployments (1 second)
+      const currentTime = Date.now();
+      if (currentTime - lastActionTimeRef.current < 1000) {
         return;
       }
 
       // Nếu ở chế độ thủ công, kiểm tra các góc/vật phẩm thủ công trước
       if (manualModeRef.current) {
-        const manualDecision = makeManualDecision();
-        if (manualDecision) return; // Nếu đã quyết định thủ công, bỏ qua quyết định tự động
+        makeManualDecision();
+        return; // Always return after attempting manual decision
       }
 
-      // Nếu không ở chế độ thủ công hoặc không có quyết định thủ công, thực hiện quyết định tự động
-      if (!manualModeRef.current) {
-        makeDecision();
-      }
-    }, 100);
+      // Nếu không ở chế độ thủ công, thực hiện quyết định tự động
+      makeDecision();
+    }, 50);
 
     logDecision('Decision process started');
   };
@@ -259,13 +287,18 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     );
   };
 
+  // FIXED: Improved isItemReachableAtAngle to check both minimum and maximum distances
   const isItemReachableAtAngle = (
     item: GameItem,
     currentAngle: number,
     angleTolerance: number = 5
   ): boolean => {
     const targetAngle = calculateTargetAngle(item);
-    return Math.abs(currentAngle - targetAngle) <= angleTolerance;
+    const angleMatch = Math.abs(targetAngle - currentAngle) <= angleTolerance;
+    const dist = calculateDistance(item);
+
+    // Check both minimum and maximum distances to avoid passing through items
+    return angleMatch && dist <= GAME_CONFIG.ROPE_MAX_LENGTH && dist >= HOOK_MIN_LENGTH;
   };
 
   const hasObstaclesInPath = (targetItem: GameItem, items: GameItem[]): boolean => {
@@ -384,6 +417,11 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
           score = -1000;
         }
 
+        // FIXED: Lower score for items that are too close to avoid passing through
+        if (distance < HOOK_MIN_LENGTH) {
+          score *= 0.1; // Significantly reduce score for too-close items
+        }
+
         return { item, score };
       });
 
@@ -391,151 +429,110 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     return ratedItems.sort((a, b) => b.score - a.score);
   };
 
-  // NEW FUNCTION: Quyết định dựa trên đầu vào thủ công
-  const makeManualDecision = (): boolean => {
-    // Bỏ qua nếu đang suy nghĩ hoặc móc không ở trạng thái đang đu đưa
-    if (autoPlayerState.thinking || gameState.hookState !== 'swinging') {
+  // FIXED: Improved the manual decision function with proper checks
+  const makeManualDecision = () => {
+    // Skip if hook is active or it's too soon
+    if (autoPlayerState.isHookActive || Date.now() - lastActionTimeRef.current < 1000) {
       return false;
     }
 
-    // Kiểm tra nếu có góc thủ công để xử lý
-    if (autoPlayerState.manualAngles.length > 0 && autoPlayerState.waitingForAngle) {
-      // Lấy góc đầu tiên từ danh sách
-      const targetAngle = autoPlayerState.manualAngles[0];
+    let actionPerformed = false;
 
-      // Xác định dung sai dựa trên cấp độ thông minh
-      let angleTolerance: number;
-      switch (playerConfig.intelligenceLevel) {
-        case 'basic':
-          angleTolerance = 10;
-          break;
-        case 'advanced':
-          angleTolerance = 5;
-          break;
-        case 'expert':
-          angleTolerance = 2;
-          break;
-        default:
-          angleTolerance = 5;
+    if (manualModeRef.current) {
+      if (autoPlayerState.manualAngles.length > 0) {
+        const angle = autoPlayerState.manualAngles[0]; // Read first without shifting yet
+
+        if (angle !== undefined) {
+          logDecision(`Deploying hook at manual angle: ${angle}`);
+
+          // First set the angle, then toggle the hook
+          gameEngine.setHookAngle(angle);
+          toggleHook();
+
+          // Update state AFTER deploying hook
+          setAutoPlayerState(prev => ({
+            ...prev,
+            manualAngles: prev.manualAngles.slice(1), // Remove the used angle
+            isHookActive: true,
+            lastActionTime: Date.now(),
+          }));
+
+          // Update ref for time tracking
+          lastActionTimeRef.current = Date.now();
+          actionPerformed = true;
+        }
+      } else if (autoPlayerState.manualTargetItems.length > 0) {
+        const targetId = autoPlayerState.manualTargetItems[0]; // Read first without shifting yet
+        const targetItem = gameState.items.find(item => item.id === targetId);
+
+        if (targetItem) {
+          const angle = calculateTargetAngle(targetItem);
+          const distance = calculateDistance(targetItem);
+
+          // Check if the item is at a reasonable distance
+          if (distance >= HOOK_MIN_LENGTH && distance <= GAME_CONFIG.ROPE_MAX_LENGTH) {
+            logDecision(`Deploying hook to manual target item: ${targetItem.type}`);
+
+            // First set the angle, then toggle the hook
+            gameEngine.setHookAngle(angle);
+            toggleHook();
+
+            // Update state AFTER deploying hook
+            setAutoPlayerState(prev => ({
+              ...prev,
+              manualTargetItems: prev.manualTargetItems.slice(1), // Remove the used target
+              isHookActive: true,
+              lastActionTime: Date.now(),
+            }));
+
+            // Update ref for time tracking
+            lastActionTimeRef.current = Date.now();
+            actionPerformed = true;
+          } else {
+            logDecision(`Skipping target item - unreachable distance: ${distance.toFixed(2)}`);
+            // Remove this target since it's unreachable
+            setAutoPlayerState(prev => ({
+              ...prev,
+              manualTargetItems: prev.manualTargetItems.slice(1),
+            }));
+          }
+        } else {
+          // Item not found, remove from list
+          setAutoPlayerState(prev => ({
+            ...prev,
+            manualTargetItems: prev.manualTargetItems.slice(1),
+          }));
+        }
       }
-
-      // Kiểm tra nếu móc đã gần đến góc mục tiêu
-      if (Math.abs(gameState.hookAngle - targetAngle) <= angleTolerance) {
-        // Kéo móc!
-        toggleHook();
-
-        logDecision(
-          `Deploying hook at manual angle ${gameState.hookAngle.toFixed(
-            1
-          )}° (target: ${targetAngle.toFixed(1)}°)`
-        );
-
-        // Loại bỏ góc đã xử lý khỏi danh sách
-        setAutoPlayerState(prev => ({
-          ...prev,
-          thinking: false,
-          lastActionTime: Date.now(),
-          manualAngles: prev.manualAngles.slice(1),
-          waitingForAngle: prev.manualAngles.length > 1,
-        }));
-
-        return true;
-      }
-
-      return false; // Vẫn đang đợi đúng góc
+      return actionPerformed;
     }
-
-    // Kiểm tra nếu có vật phẩm mục tiêu thủ công
-    if (autoPlayerState.manualTargetItems.length > 0) {
-      setAutoPlayerState(prev => ({ ...prev, thinking: true }));
-
-      // Lấy các vật phẩm khả dụng khớp với ID mục tiêu
-      const targetItems = gameState.items.filter(
-        item => !item.collected && autoPlayerState.manualTargetItems.includes(item.id)
-      );
-
-      if (targetItems.length === 0) {
-        // Không còn vật phẩm mục tiêu, xóa danh sách và quay lại chế độ tự động
-        setAutoPlayerState(prev => ({
-          ...prev,
-          thinking: false,
-          manualTargetItems: [],
-        }));
-        manualModeRef.current = false;
-        return false;
-      }
-
-      // Đánh giá các vật phẩm mục tiêu để tìm vật tốt nhất để bắt ngay
-      const ratedTargetItems = targetItems
-        .map(item => {
-          const targetAngle = calculateTargetAngle(item);
-          const angleDifference = Math.abs(gameState.hookAngle - targetAngle);
-          return { item, angleDifference };
-        })
-        .sort((a, b) => a.angleDifference - b.angleDifference);
-
-      // Lấy vật phẩm có khoảng cách góc nhỏ nhất
-      const bestTarget = ratedTargetItems[0];
-
-      // Xác định dung sai dựa trên cấp độ thông minh
-      let angleTolerance: number;
-      switch (playerConfig.intelligenceLevel) {
-        case 'basic':
-          angleTolerance = 10;
-          break;
-        case 'advanced':
-          angleTolerance = 5;
-          break;
-        case 'expert':
-          angleTolerance = 2;
-          break;
-        default:
-          angleTolerance = 5;
-      }
-
-      // Kiểm tra nếu ở góc thích hợp để bắt vật phẩm
-      if (bestTarget.angleDifference <= angleTolerance) {
-        // Kéo móc!
-        toggleHook();
-
-        logDecision(
-          `Deploying hook at angle ${gameState.hookAngle.toFixed(1)}° to catch manual target ${
-            bestTarget.item.type
-          } (ID: ${bestTarget.item.id})`
-        );
-
-        // Loại bỏ vật phẩm đã xử lý khỏi danh sách
-        setAutoPlayerState(prev => ({
-          ...prev,
-          thinking: false,
-          targetItem: bestTarget.item,
-          lastActionTime: Date.now(),
-          manualTargetItems: prev.manualTargetItems.filter(id => id !== bestTarget.item.id),
-        }));
-
-        return true;
-      }
-
-      setAutoPlayerState(prev => ({ ...prev, thinking: false }));
-      return false; // Vẫn đang đợi góc thích hợp
-    }
-
-    // Nếu đã xử lý hết tất cả đầu vào thủ công, quay lại chế độ tự động
-    if (
-      manualModeRef.current &&
-      autoPlayerState.manualAngles.length === 0 &&
-      autoPlayerState.manualTargetItems.length === 0
-    ) {
-      manualModeRef.current = false;
-    }
-
-    return false; // Không có quyết định thủ công
   };
+  useEffect(() => {
+    // Kiểm tra và loại bỏ các mục tiêu đã được thu thập từ danh sách
+    if (manualModeRef.current && autoPlayerState.manualTargetItems.length > 0) {
+      const uncollectedTargets = autoPlayerState.manualTargetItems.filter(targetId => {
+        const item = gameState.items.find(item => item.id === targetId);
+        return item && !item.collected;
+      });
 
-  // Make a decision based on current game state
+      if (uncollectedTargets.length !== autoPlayerState.manualTargetItems.length) {
+        setAutoPlayerState(prev => ({
+          ...prev,
+          manualTargetItems: uncollectedTargets,
+        }));
+
+        logDecision('Removed collected targets from manual target list');
+      }
+    }
+  }, [gameState.items]);
+  // FIXED: Improved the auto decision function with proper checks
   const makeDecision = () => {
-    // Skip if already thinking or hook is not in swinging state
-    if (autoPlayerState.thinking || gameState.hookState !== 'swinging') {
+    // Skip if already thinking, hook is active, or it's too soon for another action
+    if (
+      autoPlayerState.thinking ||
+      autoPlayerState.isHookActive ||
+      Date.now() - lastActionTimeRef.current < 1000
+    ) {
       return;
     }
 
@@ -569,6 +566,13 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     // Calculate target angle
     const targetAngle = calculateTargetAngle(bestTarget.item);
 
+    // Calculate distance to verify it's within reachable range
+    const distance = calculateDistance(bestTarget.item);
+    if (distance < HOOK_MIN_LENGTH || distance > GAME_CONFIG.ROPE_MAX_LENGTH) {
+      setAutoPlayerState(prev => ({ ...prev, thinking: false }));
+      return;
+    }
+
     // Determine tolerance based on intelligence level
     let angleTolerance: number;
     switch (playerConfig.intelligenceLevel) {
@@ -593,14 +597,20 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       logDecision(
         `Deploying hook at angle ${gameState.hookAngle.toFixed(1)}° to catch ${
           bestTarget.item.type
-        } (value: ${bestTarget.item.value}, score: ${bestTarget.score.toFixed(2)})`
+        } (value: ${bestTarget.item.value}, score: ${bestTarget.score.toFixed(
+          2
+        )}, distance: ${distance.toFixed(2)})`
       );
+
+      // Update both state and ref for last action time
+      lastActionTimeRef.current = Date.now();
 
       setAutoPlayerState(prev => ({
         ...prev,
         thinking: false,
         targetItem: bestTarget.item,
         lastActionTime: Date.now(),
+        isHookActive: true,
       }));
     } else {
       // Wait for the right angle
@@ -644,6 +654,17 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     }
   }, [gameState.items]);
 
+  // ADDED: Monitor hook state changes
+  useEffect(() => {
+    // Reset isHookActive when hook returns to swinging state
+    if (gameState.hookState === 'swinging' && autoPlayerState.isHookActive) {
+      setAutoPlayerState(prev => ({
+        ...prev,
+        isHookActive: false,
+      }));
+    }
+  }, [gameState.hookState]);
+
   return {
     autoPlayerState,
     toggleAutoPlayer,
@@ -651,11 +672,11 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     startDecisionProcess,
     stopDecisionProcess,
     logDecision,
-    // Các hàm mới cho điều khiển thủ công
+    // Functions for manual control
     deployHookAtAngle,
     deployHookToItems,
     deployHookToAngles,
-    // Hàm tiện ích có thể cần dùng bên ngoài
+    // Utility functions
     calculateTargetAngle,
     calculateDistance,
     rateItems,

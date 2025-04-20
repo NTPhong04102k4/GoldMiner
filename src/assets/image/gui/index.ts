@@ -26,4 +26,5 @@ export const elements = {
   bg2: require('./bg2.png'),
   bg_start: require('./bgc.png'),
   moc: require('./moc.png'),
+  close: require('./close.png'),
 };
