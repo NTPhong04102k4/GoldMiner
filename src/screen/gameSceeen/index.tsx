@@ -24,7 +24,7 @@ const GoldMinerGameScreen: React.FC = () => {
 
   const autoPlayer = useAutoPlayer({
     enabled: true, 
-    intelligenceLevel: "basic",
+    intelligenceLevel: "advanced",
     riskTolerance: 0.8,
     preferHighValue: true,
     avoidTNT: true,
@@ -43,43 +43,43 @@ const GoldMinerGameScreen: React.FC = () => {
 
   const hasHookedRef = React.useRef(false);
   const [collectionStarted, setCollectionStarted] = useState(false);
+  // Thêm state để theo dõi trạng thái hiệu ứng
+  const [isCollecting, setIsCollecting] = useState(false);
   
-const [targetHookAngle, setTargetHookAngle] = useState<number|null>();
+  const [targetHookAngle, setTargetHookAngle] = useState<number|null>();
 
-
-
-useEffect(() => {
-
-  if (
-    gameState.gameStatus === 'playing' && 
-    autoPlayerState.enabled && 
-    gameState.hookState === 'swinging' && 
-    !collectionStarted
-  ) {
-    const uncollectedItems = gameState.items.filter(item => !item.collected);
-    
-    if (uncollectedItems.length > 0) {
-      // Sắp xếp vật phẩm theo giá trị (từ cao đến thấp)
-      const sortedItems = [...uncollectedItems].sort((a, b) => b.value - a.value);
+  useEffect(() => {
+    if (
+      gameState.gameStatus === 'playing' && 
+      autoPlayerState.enabled && 
+      gameState.hookState === 'swinging' && 
+      !collectionStarted
+    ) {
+      const uncollectedItems = gameState.items.filter(item => !item.collected);
       
-      // Lấy vật phẩm có giá trị cao nhất
-      const targetItem = sortedItems[0];
-      
-      // Tính góc đến vật phẩm mục tiêu
-      const targetAngle = calculateTargetAngle(targetItem);
-      
-      console.log(`[Auto] Setting target angle to ${targetAngle.toFixed(1)}° for item ${targetItem.type}`);
-      
-      // Đặt góc mục tiêu
-      setTargetHookAngle(targetAngle);
-      setCollectionStarted(true);
+      if (uncollectedItems.length > 0) {
+        // Sắp xếp vật phẩm theo giá trị (từ cao đến thấp)
+        const sortedItems = [...uncollectedItems].sort((a, b) => b.value - a.value);
+        
+        // Lấy vật phẩm có giá trị cao nhất
+        const targetItem = sortedItems[0];
+        
+        // Tính góc đến vật phẩm mục tiêu
+        const targetAngle = calculateTargetAngle(targetItem);
+        
+        console.log(`[Auto] Setting target angle to ${targetAngle.toFixed(1)}° for item ${targetItem.type}`);
+        
+        // Đặt góc mục tiêu
+        setTargetHookAngle(targetAngle);
+        setCollectionStarted(true);
+      }
     }
-  }
-}, [gameState.gameStatus, autoPlayerState.enabled, gameState.hookState, collectionStarted]);
+  }, [gameState.gameStatus, autoPlayerState.enabled, gameState.hookState, collectionStarted]);
   
   useEffect(() => {
     if (gameState.hookState === 'swinging') {
       hasHookedRef.current = false;
+      setIsCollecting(false); // Reset trạng thái collecting khi về trạng thái swinging
 
       if (!gameState.items.every(item => item.collected) && gameState.timeRemaining > 0 && autoPlayerState.enabled) {
         setCollectionStarted(false);
@@ -91,6 +91,7 @@ useEffect(() => {
     if (gameState.gameStatus !== 'playing') {
       setCollectionStarted(false);
       setTargetHookAngle(null); 
+      setIsCollecting(false); // Reset trạng thái collecting khi game không ở trạng thái playing
     }
   }, [gameState.gameStatus]);
   
@@ -109,33 +110,43 @@ useEffect(() => {
       }
     }
   }, [gameState.hookState]);
+  
   useEffect(() => {
     if (targetHookAngle !== null && gameState.hookState === 'swinging') {
       let temp = targetHookAngle === undefined ? 0 : targetHookAngle;
-      if (Math.abs(gameState.hookAngle - temp) <= 10) {
+      if (Math.abs(gameState.hookAngle - temp) <= 3) {
         console.log(`Deploying hook at ${gameState.hookAngle.toFixed(1)}° (target: ${targetHookAngle}°)`);
         toggleHook();
         setTargetHookAngle(null);
       }
     }
   }, [gameState.hookAngle, gameState.hookState, targetHookAngle]);
+  
   const handleExtendComplete = useCallback(() => {
     if (gameState.hookState === 'extending' && !gameState.caughtItem) {
       setHookState('retracting');
     }
   }, [gameState.hookState, gameState.caughtItem]);
 
+  // Sửa đổi hàm handleRetractComplete để kiểm soát việc hoàn thành hiệu ứng
   const handleRetractComplete = () => {
-    gameState.caughtItem
-      ? collectItem(gameState.caughtItem)
-      : setHookState('swinging');
+    if (gameState.caughtItem) {
+      console.log('Animation completed, collecting item: ', gameState.caughtItem.type);
+      collectItem(gameState.caughtItem);
+    } else {
+      setHookState('swinging');
+    }
   };
 
   const handleItemCaught = (item: GameItem) => {
     console.log('Item caught:', item.type, item.id);
+    setIsCollecting(true); // Đánh dấu rằng đang trong quá trình thu thập vật phẩm
   };
+  
   const handleAngleChange = (angle: number) => {
+    // Không cần thay đổi
   };
+  
   return (
     <TouchableWithoutFeedback onPress={toggleHook}>
       <View style={styles.container}>

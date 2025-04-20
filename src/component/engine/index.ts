@@ -191,8 +191,15 @@ export const useGameEngine = () => {
   };
 
   const startNextLevel = () => {
-    const nextLevelIndex = Math.min(gameState.level, LEVEL_CONFIGS.length - 1);
+    const nextLevelIndex = gameState.level;
 
+    if (nextLevelIndex >= LEVEL_CONFIGS.length) {
+      setGameState(prev => ({
+        ...prev,
+        gameStatus: 'gameCompleted',
+      }));
+      return;
+    }
     const items = generateItems(nextLevelIndex);
 
     setGameState(prev => ({
@@ -383,7 +390,6 @@ export const useGameEngine = () => {
     });
   };
 
-  // Collect item
   const collectItem = (item: GameItem) => {
     setGameState(prev => {
       // Mark item as collected
@@ -394,7 +400,6 @@ export const useGameEngine = () => {
         return i;
       });
 
-      // Update score
       const newScore = prev.score + item.value;
 
       // Check if all items are collected or target score is reached
@@ -442,63 +447,45 @@ export const useGameEngine = () => {
     // Maximum rope length
     const maxHookLength = GAME_CONFIG.ROPE_MAX_LENGTH;
 
-    // Desired retraction duration (base time)
-    const baseRetractionTime = 2000; // 2 seconds in milliseconds
+    const baseRetractionTime = 2000;
 
-    // Updates per second (based on animation interval)
     const updatesPerSecond = 1000 / 50;
 
-    // Base speed to complete retraction in baseRetractionTime
     const baseSpeed = maxHookLength / ((baseRetractionTime / 1000) * updatesPerSecond);
 
-    // Use caught item weight or default to 0
     const itemWeight = weight ?? (gameState.caughtItem ? gameState.caughtItem.weight : 0);
 
-    // Weight factor: heavier items retract slower
     const weightFactor = 0.2;
-
-    // Calculate adjusted speed (lower for heavier items)
-    // Ensure minimum speed of 40% of base speed to prevent extreme slowness
     return Math.max(baseSpeed * 0.4, baseSpeed - itemWeight * weightFactor);
   };
 
-  // Update hook position and check for collisions
   const updateHookPosition = (
     angle: number,
     length: number,
     callback: (item: GameItem) => void
   ): GameItem | null => {
-    // Skip if not in extending state
     if (gameState.hookState !== 'extending') {
       return null;
     }
 
-    // Get screen dimensions
     const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
-    // Hook origin position (top center of screen)
     const hookOriginX = SCREEN_WIDTH / 2;
     const hookOriginY = SCREEN_HEIGHT * 0.15;
 
-    // Use negative angle to match visual representation
     const correctedAngle = -angle;
 
-    // Convert angle to radians
     const angleRad = correctedAngle * (Math.PI / 180);
 
-    // Calculate hook endpoint coordinates
     const hookX = Math.sin(angleRad) * length;
     const hookY = Math.cos(angleRad) * length;
 
-    // Calculate absolute position of hook endpoint
     const hookEndX = hookOriginX + hookX;
     const hookEndY = hookOriginY + hookY;
 
-    // Hook size for collision detection
     const hookSize = GAME_CONFIG.HOOK_SIZE || 30;
     const halfHookSize = hookSize / 2;
 
-    // Create hook bounds for collision detection
     const hookBounds = {
       left: hookEndX - halfHookSize,
       right: hookEndX + halfHookSize,
@@ -506,16 +493,13 @@ export const useGameEngine = () => {
       bottom: hookEndY + halfHookSize,
     };
 
-    // Filter available items (not collected)
     const availableItems = gameState.items.filter(item => !item.collected);
 
     if (availableItems.length === 0) {
       return null;
     }
 
-    // Check each item for collision
     for (const item of availableItems) {
-      // Create item bounds
       const itemBounds = {
         left: item.x,
         right: item.x + item.width,
@@ -523,7 +507,6 @@ export const useGameEngine = () => {
         bottom: item.y + item.height,
       };
 
-      // Check for collision (expanded hit box for easier catching)
       const collisionMargin = 5; // pixels
       const isColliding =
         hookBounds.left <= itemBounds.right + collisionMargin &&
@@ -534,14 +517,12 @@ export const useGameEngine = () => {
       if (isColliding) {
         console.log(`Caught item: ${item.type} (value: ${item.value}, weight: ${item.weight})`);
 
-        // Set caught item and change hook state to pulling
         setGameState(prev => ({
           ...prev,
           caughtItem: item,
           hookState: 'pulling',
         }));
 
-        // Add timeout to transition to retracting after a short pause
         setTimeout(() => {
           setGameState(prev => {
             if (prev.hookState === 'pulling' && prev.caughtItem?.id === item.id) {
@@ -554,27 +535,22 @@ export const useGameEngine = () => {
           });
         }, 150);
 
-        // Trigger the callback
         callback(item);
 
         return item;
       }
     }
 
-    // Check if hook has reached maximum length
     if (length >= GAME_CONFIG.ROPE_MAX_LENGTH) {
-      // Automatically start retracting
       setGameState(prev => ({
         ...prev,
         hookState: 'retracting',
       }));
     }
 
-    // No collision detected
     return null;
   };
 
-  // Set hook state directly
   const setHookState = (newHookState: HookState) => {
     setGameState(prev => ({
       ...prev,
@@ -582,14 +558,11 @@ export const useGameEngine = () => {
     }));
   };
   const setHookAngle = (angle: number) => {
-    // Implementation to set the hook angle
-    // This would update the gameState.hookAngle directly
     setGameState(prev => ({
       ...prev,
       hookAngle: angle,
     }));
   };
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (gameTimerRef.current) {

@@ -138,12 +138,15 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
         retract();
       } else if (hookState === 'pulling') {
         console.log('Hook is pulling - paused momentarily with item');
+        // When in 'pulling' state, we just wait - animations already stopped
       } else {
+        // Invalid state, revert to swinging
         console.warn('Invalid hook state:', hookState);
         startSwinging();
       }
     } catch (error) {
       console.error('Error in hook state effect:', error);
+      // Revert to safe state
       startSwinging();
     }
   }, [hookState]);
@@ -225,11 +228,9 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
       ]),
     );
 
-    // Start the swinging animation
     swingAnimation.current.start();
   };
 
-  // Extend the hook
   const extend = () => {
     try {
       const targetLength = Math.min(
@@ -238,10 +239,16 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
       );
       
       console.log(`Extending rope to ${targetLength}px`);
+      
+      const extensionDuration = Math.max(
+        500, // Minimum 0.3 seconds
+        (targetLength - GAME_CONFIG.ROPE_MIN_LENGTH) / GAME_CONFIG.EXTEND_SPEED
+      );
   
+      // Animate the rope extension
       extensionAnimation.current = Animated.timing(ropeLength, {
         toValue: targetLength,
-        duration: (targetLength - GAME_CONFIG.ROPE_MIN_LENGTH) / GAME_CONFIG.EXTEND_SPEED,
+        duration: extensionDuration,
         easing: Easing.linear,
         useNativeDriver: false,
       });
@@ -264,7 +271,6 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
   // Retract the hook
   const retract = () => {
     try {
-      // Ensure we don't have multiple retraction animations running
       if (retractionAnimation.current) {
         retractionAnimation.current.stop();
       }
@@ -275,29 +281,29 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
         onRetractComplete();
         return;
       }
-
-      // Calculate retraction speed based on item weight
+  
       const retractionSpeed = caughtItem
         ? getRetractionSpeed(caughtItem.weight)
         : GAME_CONFIG.BASE_RETRACT_SPEED;
-
+  
       // Make sure we're retracting from the current position
       const retractDistance = Math.max(0, currentLength - GAME_CONFIG.ROPE_MIN_LENGTH);
       
-      // Make sure duration is reasonable - not too fast, not too slow
+      // Make sure duration is reasonable - with minimum of 500ms (0.5s) for retraction
       let retractDuration = Math.max(500, retractDistance / retractionSpeed);
       
       if (caughtItem) {
         // Increase duration for caught items but cap it to prevent too slow movement
         retractDuration = Math.min(3000, Math.max(1000, retractDuration * (1 + caughtItem.weight / 10)));
         console.log(`Retracting with item of weight ${caughtItem.weight}, duration: ${retractDuration}ms`);
+      } else {
+        retractDuration = Math.max(500, retractDuration);
       }
-
+  
       // Animate rope retraction
       retractionAnimation.current = Animated.timing(ropeLength, {
         toValue: GAME_CONFIG.ROPE_MIN_LENGTH,
         duration: retractDuration,
-        // More natural retraction easing
         easing: caughtItem ? Easing.out(Easing.sin) : Easing.linear,
         useNativeDriver: false,
       });
@@ -312,18 +318,21 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
           // If item was caught, animate its disappearance
           if (caughtItem) {
             try {
-              // Fade out caught item
-              Animated.timing(caughtItemOpacity, {
-                toValue: 0,
-                duration: 500,
-                easing: Easing.out(Easing.ease),
-                useNativeDriver: true,
-              }).start(() => {
-                // Reset opacity for next item
-                caughtItemOpacity.setValue(1);
-                // Signal completion
-                onRetractComplete();
-              });
+              // Add a delay before fading out the caught item
+              // This creates a visible pause when the item reaches the top
+              setTimeout(() => {
+                // Fade out caught item
+                Animated.timing(caughtItemOpacity, {
+                  toValue: 0,
+                  duration: 500, // 0.5 seconds fade out
+                  easing: Easing.out(Easing.ease),
+                  useNativeDriver: true,
+                }).start(() => {
+                  // Reset opacity for next item
+                  caughtItemOpacity.setValue(1);
+                  onRetractComplete();
+                });
+              }, 500); 
             } catch (error) {
               console.error('Error animating caught item:', error);
               caughtItemOpacity.setValue(1);
@@ -376,10 +385,8 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.ropeOrigin}>
-        {/* Rotating container for the rope and hook */}
         <Animated.View
           style={[styles.ropeContainer, {transform: [{rotate: rotation}]}]}>
-          {/* The rope */}
           <Animated.View 
             style={[
               styles.rope, 
@@ -387,7 +394,6 @@ export const AnimatedHook: React.FC<AnimatedHookProps> = ({
             ]} 
           />
   
-          {/* The hook */}
           <Animated.View
             style={[
               styles.hook,

@@ -1,7 +1,7 @@
 export const LEVEL_CONFIGS = [
   // Level 1 - Basic introduction
   {
-    targetScore: 650,
+    targetScore: 1350,
     timeLimit: 60,
     items: [
       { type: 'gold1', count: 4, valueRange: [50, 100], weightRange: [2, 3] },
@@ -12,7 +12,7 @@ export const LEVEL_CONFIGS = [
   },
   // Level 2 - Introduce higher value gold
   {
-    targetScore: 1200,
+    targetScore: 2500,
     timeLimit: 60,
     items: [
       { type: 'gold1', count: 3, valueRange: [50, 100], weightRange: [2, 3] },
@@ -25,7 +25,7 @@ export const LEVEL_CONFIGS = [
   },
   // Level 3 - Introduce the diamond (gold4)
   {
-    targetScore: 1800,
+    targetScore: 3800,
     timeLimit: 60,
     items: [
       { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
@@ -39,7 +39,7 @@ export const LEVEL_CONFIGS = [
   },
   // Level 4 - Challenging level with time pressure
   {
-    targetScore: 2500,
+    targetScore: 5500,
     timeLimit: 50, // Less time
     items: [
       { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
@@ -53,7 +53,7 @@ export const LEVEL_CONFIGS = [
   },
   // Level 5 - Final challenge
   {
-    targetScore: 3500,
+    targetScore: 7500,
     timeLimit: 45, // Even less time
     items: [
       { type: 'gold1', count: 1, valueRange: [50, 100], weightRange: [2, 3] },

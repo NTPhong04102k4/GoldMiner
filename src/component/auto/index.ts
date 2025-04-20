@@ -5,6 +5,15 @@ import { useGameEngine } from '../engine';
 import { height, ITEM_PRIORITIES, width } from './data';
 
 const HOOK_MIN_LENGTH = 10;
+const POSITION_COOLDOWN_TIME = 5000;
+
+// Interface cho vị trí đã kéo
+interface PulledPosition {
+  x: number;
+  y: number;
+  timestamp: number;
+  radius: number;
+}
 
 const calculateItemScore = (item: GameItem): number => {
   const priorityMultiplier = ITEM_PRIORITIES[item.type] || 0;
@@ -34,6 +43,9 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
   const gameEngine = useGameEngine();
   const { gameState, toggleHook } = gameEngine;
 
+  // Thêm state cho ngăn xếp vị trí đã kéo
+  const [pulledPositions, setPulledPositions] = useState<PulledPosition[]>([]);
+
   const [autoPlayerState, setAutoPlayerState] = useState({
     enabled: playerConfig.enabled,
     thinking: false,
@@ -50,6 +62,48 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
   const autoplayActiveRef = useRef(playerConfig.enabled);
   const manualModeRef = useRef(false);
   const lastActionTimeRef = useRef(0);
+
+  // Hàm để kiểm tra xem một vị trí có nằm trong ngăn xếp vị trí đã kéo không
+  const isPositionInCooldown = (x: number, y: number): boolean => {
+    const currentTime = Date.now();
+
+    // Lọc bỏ các vị trí đã hết thời gian cooldown (quá 5 giây)
+    const validPositions = pulledPositions.filter(
+      pos => currentTime - pos.timestamp < POSITION_COOLDOWN_TIME
+    );
+
+    // Nếu danh sách đã thay đổi, cập nhật lại state
+    if (validPositions.length !== pulledPositions.length) {
+      setPulledPositions(validPositions);
+    }
+
+    // Kiểm tra xem vị trí hiện tại có gần với bất kỳ vị trí nào trong danh sách không
+    return validPositions.some(pos => {
+      const distance = Math.sqrt(Math.pow(pos.x - x, 2) + Math.pow(pos.y - y, 2));
+      return distance <= pos.radius; // Nếu nằm trong bán kính, trả về true
+    });
+  };
+
+  // Hàm để thêm vị trí vào ngăn xếp
+  const addPositionToCooldown = (item: GameItem) => {
+    const itemCenterX = item.x + item.width / 2;
+    const itemCenterY = item.y + item.height / 2;
+    const radius = Math.max(item.width, item.height) / 2 + 10; // Bán kính an toàn
+
+    setPulledPositions(prev => [
+      ...prev,
+      {
+        x: itemCenterX,
+        y: itemCenterY,
+        timestamp: Date.now(),
+        radius: radius,
+      },
+    ]);
+
+    logDecision(
+      `Added position (${itemCenterX.toFixed(0)}, ${itemCenterY.toFixed(0)}) to cooldown list`
+    );
+  };
 
   // Log decisions for debugging
   const logDecision = (message: string) => {
@@ -394,12 +448,22 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     const ratedItems = items
       .filter(item => !item.collected)
       .map(item => {
+        // Kiểm tra xem vị trí này có đang trong thời gian cooldown không
+        const itemCenterX = item.x + item.width / 2;
+        const itemCenterY = item.y + item.height / 2;
+        const inCooldown = isPositionInCooldown(itemCenterX, itemCenterY);
+
         let score = calculateItemScore(item);
         const targetAngle = calculateTargetAngle(item);
         const angleDifference = Math.abs(currentAngle - targetAngle);
         const distance = calculateDistance(item);
         const maxDistance = Math.sqrt(width * width + height * height);
         const hasObstacles = hasObstaclesInPath(item, items);
+
+        // Nếu vị trí đang trong thời gian cooldown, giảm điểm số xuống rất thấp
+        if (inCooldown) {
+          score *= 0.1; // Giảm 90% điểm số
+        }
 
         // Decrease score based on angle difference
         score *= 1 - (angleDifference / 90) * 0.8;
@@ -425,13 +489,11 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
         return { item, score };
       });
 
-    // Sort by score in descending order
     return ratedItems.sort((a, b) => b.score - a.score);
   };
 
   // FIXED: Improved the manual decision function with proper checks
   const makeManualDecision = () => {
-    // Skip if hook is active or it's too soon
     if (autoPlayerState.isHookActive || Date.now() - lastActionTimeRef.current < 1000) {
       return false;
     }
@@ -471,23 +533,35 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
 
           // Check if the item is at a reasonable distance
           if (distance >= HOOK_MIN_LENGTH && distance <= GAME_CONFIG.ROPE_MAX_LENGTH) {
-            logDecision(`Deploying hook to manual target item: ${targetItem.type}`);
+            // Kiểm tra xem vị trí này có đang trong thời gian cooldown không
+            const itemCenterX = targetItem.x + targetItem.width / 2;
+            const itemCenterY = targetItem.y + targetItem.height / 2;
 
-            // First set the angle, then toggle the hook
-            gameEngine.setHookAngle(angle);
-            toggleHook();
+            if (!isPositionInCooldown(itemCenterX, itemCenterY)) {
+              logDecision(`Deploying hook to manual target item: ${targetItem.type}`);
 
-            // Update state AFTER deploying hook
-            setAutoPlayerState(prev => ({
-              ...prev,
-              manualTargetItems: prev.manualTargetItems.slice(1), // Remove the used target
-              isHookActive: true,
-              lastActionTime: Date.now(),
-            }));
+              // First set the angle, then toggle the hook
+              gameEngine.setHookAngle(angle);
+              toggleHook();
 
-            // Update ref for time tracking
-            lastActionTimeRef.current = Date.now();
-            actionPerformed = true;
+              // Thêm vị trí này vào danh sách cooldown
+              addPositionToCooldown(targetItem);
+
+              // Update state AFTER deploying hook
+              setAutoPlayerState(prev => ({
+                ...prev,
+                manualTargetItems: prev.manualTargetItems.slice(1), // Remove the used target
+                isHookActive: true,
+                lastActionTime: Date.now(),
+              }));
+
+              // Update ref for time tracking
+              lastActionTimeRef.current = Date.now();
+              actionPerformed = true;
+            } else {
+              logDecision(`Skipping target item - in cooldown period: ${targetItem.type}`);
+              // Keep this target in the list since it's just in cooldown
+            }
           } else {
             logDecision(`Skipping target item - unreachable distance: ${distance.toFixed(2)}`);
             // Remove this target since it's unreachable
@@ -507,6 +581,7 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       return actionPerformed;
     }
   };
+
   useEffect(() => {
     // Kiểm tra và loại bỏ các mục tiêu đã được thu thập từ danh sách
     if (manualModeRef.current && autoPlayerState.manualTargetItems.length > 0) {
@@ -525,6 +600,7 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       }
     }
   }, [gameState.items]);
+
   // FIXED: Improved the auto decision function with proper checks
   const makeDecision = () => {
     // Skip if already thinking, hook is active, or it's too soon for another action
@@ -573,6 +649,16 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
       return;
     }
 
+    // Kiểm tra xem vị trí mục tiêu có đang trong thời gian cooldown không
+    const itemCenterX = bestTarget.item.x + bestTarget.item.width / 2;
+    const itemCenterY = bestTarget.item.y + bestTarget.item.height / 2;
+
+    if (isPositionInCooldown(itemCenterX, itemCenterY)) {
+      logDecision(`Best target (${bestTarget.item.type}) is in cooldown period, skipping`);
+      setAutoPlayerState(prev => ({ ...prev, thinking: false }));
+      return;
+    }
+
     // Determine tolerance based on intelligence level
     let angleTolerance: number;
     switch (playerConfig.intelligenceLevel) {
@@ -601,6 +687,9 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
           2
         )}, distance: ${distance.toFixed(2)})`
       );
+
+      // Thêm vị trí này vào danh sách cooldown
+      addPositionToCooldown(bestTarget.item);
 
       // Update both state and ref for last action time
       lastActionTimeRef.current = Date.now();
@@ -634,6 +723,8 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     // Restart decision process when a new level starts
     if (gameState.gameStatus === 'playing' && autoPlayerState.enabled) {
       startDecisionProcess();
+      // Xóa danh sách vị trí đã kéo khi bắt đầu level mới
+      setPulledPositions([]);
     }
     // Stop decision process when level completes or game ends
     else if (gameState.gameStatus !== 'playing') {
@@ -665,6 +756,18 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     }
   }, [gameState.hookState]);
 
+  // Xóa các vị trí đã hết thời gian cooldown (chạy mỗi giây)
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const currentTime = Date.now();
+      setPulledPositions(prev =>
+        prev.filter(pos => currentTime - pos.timestamp < POSITION_COOLDOWN_TIME)
+      );
+    }, 1000);
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
+
   return {
     autoPlayerState,
     toggleAutoPlayer,
@@ -681,5 +784,9 @@ export const useAutoPlayer = (config: Partial<AutoPlayerConfig> = {}) => {
     calculateDistance,
     rateItems,
     isItemReachableAtAngle,
+    // Cooldown functions
+    pulledPositions,
+    isPositionInCooldown,
+    addPositionToCooldown,
   };
 };

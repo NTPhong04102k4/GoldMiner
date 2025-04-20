@@ -1,12 +1,12 @@
 import { Dimensions } from 'react-native';
 
 export const ITEM_PRIORITIES = {
-  gold4: 10, // Diamond (highest priority)
-  gold3: 8, // Large gold nugget
-  gold2: 6, // Medium gold nugget
-  gold1: 4, // Small gold nugget
-  rock2: 2, // Large rock
-  rock1: 1, // Small rock
-  tnt: -5, // TNT (avoid)
+  gold4: 10,
+  gold3: 8,
+  gold2: 6,
+  gold1: 4,
+  rock2: 2,
+  rock1: 1,
+  tnt: -5,
 };
 export const { width, height } = Dimensions.get('screen');
