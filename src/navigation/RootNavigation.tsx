@@ -12,6 +12,7 @@ import Dashboard from "../screen/dashBoard";
 import { navigationRef, onNavigationReady } from "./navigate";
 import GoldMinerGameScreen from "../screen/gameSceeen";
 import GameResultHandler from "../screen/gameResultHandler";
+import GameOver from "../screen/gameOver";
 
 // 🛠️ Định nghĩa danh sách màn hình hợp lệ
 type RootParamList = {
@@ -20,6 +21,7 @@ type RootParamList = {
   History: undefined;
   GoldMiner:undefined
   GameResultHandler:undefined
+  GameOver:undefined
 };
 
 const Stack = createNativeStackNavigator<RootParamList>();
@@ -67,6 +69,7 @@ const AppNavigator = forwardRef<NavigationContainerRef<RootParamList>, {}>(
         <Stack.Screen name="History" component={History} />
         <Stack.Screen name="GoldMiner" component={GoldMinerGameScreen}/>
         <Stack.Screen name="GameResultHandler" component={GameResultHandler}/>
+        <Stack.Screen name="GameOver" component={GameOver}/>
       </Stack.Navigator>
     </NavigationContainer>
   );

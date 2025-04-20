@@ -1,4 +1,3 @@
-// src/component/hooks.tsx
 import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
@@ -10,25 +9,39 @@ import {
 } from 'react-native';
 import { R } from '../../assets';
 import { GameItem, HookState } from '../engine/type';
+
 const {width, height} = Dimensions.get('screen');
-// Giả định rằng trong chế độ ngang: width > height
 const maxLength = Math.sqrt((width * width) / 4 + Math.pow(height - 30, 2));
-const rope=Math.min(500, maxLength * 0.9)
-// Cập nhật GAME_CONFIG
-// Define game configuration constants
+console.log(maxLength+"::::::::::::::");
+
+// Tăng hệ số lên tối thiểu là 1.0 hoặc cao hơn để đảm bảo đủ dài
+const rope = Math.min(500, maxLength * 1.0);
+
+// Game configuration constants
 export const GAME_CONFIG = {
   ROPE_MIN_LENGTH: 50,
-  ROPE_MAX_LENGTH:rope , // Giảm từ 400 xuống 300 để không kéo quá dài
+  ROPE_MAX_LENGTH: rope,
   ROPE_WIDTH: 3,
   HOOK_SIZE: 30,
   SWING_ANGLE_MAX: 80,
-  SWING_DURATION: 1500, // ms for a full swing
-  EXTEND_SPEED: 3, // pixels per ms
-  BASE_RETRACT_SPEED: 3, // pixels per ms
+  SWING_DURATION: 1500, 
+  EXTEND_SPEED: 3, 
+  BASE_RETRACT_SPEED: 3, 
+  ITEM_PROXIMITY_THRESHOLD: 70, // detection distance
+  HOOK_PREDICTION_STEP: 15, // future path check step size
+  HOOK_MAX_PREDICTION_STEPS: 10, // future positions to check
 };
 
-
+// Animation configuration
 const easing = Easing.inOut(Easing.sin);
+// Global animation configuration
+const ga = {
+  targetRopeLength: null as number | null,
+  extensionAnimationRef: null as Animated.CompositeAnimation | null,
+  shouldAutoRetract: false,
+  nearestItemInfo: null as { item: GameItem, distance: number } | null
+};
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
 interface AnimatedHookProps {
   hookState: HookState;
@@ -42,9 +55,10 @@ interface AnimatedHookProps {
     callback: (item: GameItem) => void,
   ) => GameItem | null;
   getRetractionSpeed: (weight: number) => number;
+  onItemVisibilityChange?: (itemId: string | number, visible: boolean) => void;
+  // Add new prop for angle reporting
+  onAngleChange?: (angle: number) => void;
 }
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
 const AnimatedHook: React.FC<AnimatedHookProps> = ({
   hookState,
@@ -54,49 +68,31 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
   onItemCaught,
   checkCollision,
   getRetractionSpeed,
+  onItemVisibilityChange,
+  onAngleChange, // New prop
 }) => {
-  // Refs to store animation values
+  // Animation values
   const swingAngle = useRef(new Animated.Value(0)).current;
-  const ropeLength = useRef(
-    new Animated.Value(GAME_CONFIG.ROPE_MIN_LENGTH),
-  ).current;
+  const ropeLength = useRef(new Animated.Value(GAME_CONFIG.ROPE_MIN_LENGTH)).current;
   const swingAnimation = useRef<Animated.CompositeAnimation | null>(null);
-  useEffect(() => {
-    if (hookState === 'retracting' && isProcessingCollision) {
-      setIsProcessingCollision(false);
-    }
-
-    // Thêm xử lý đối tượng null/undefined
-    if (hookState === 'retracting' && caughtItem === null) {
-      // Đảm bảo rút về ngay cả khi không có đối tượng bị bắt
-      retract();
-    }
-  }, [hookState, caughtItem]);
-  // Ref to store caught item opacity animation
   const caughtItemOpacity = useRef(new Animated.Value(1)).current;
 
-  // Rotation interpolation for the hook's swinging motion
-  const rotation = swingAngle.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: [
-      `-${GAME_CONFIG.SWING_ANGLE_MAX}deg`,
-      '0deg',
-      `${GAME_CONFIG.SWING_ANGLE_MAX}deg`,
-    ],
-  });
-
-  // Track last known values of the animations
+  // Track current animation values
   const [currentAngle, setCurrentAngle] = useState(0);
-  const [currentLength, setCurrentLength] = useState(
-    GAME_CONFIG.ROPE_MIN_LENGTH,
-  );
+  const [currentLength, setCurrentLength] = useState(GAME_CONFIG.ROPE_MIN_LENGTH);
   const [isProcessingCollision, setIsProcessingCollision] = useState(false);
 
   // Add listeners to track current values
   useEffect(() => {
     const angleListener = swingAngle.addListener(({ value }) => {
       // Convert interpolated value (-1 to 1) to degrees
-      setCurrentAngle(value * GAME_CONFIG.SWING_ANGLE_MAX);
+      const newAngle = value * GAME_CONFIG.SWING_ANGLE_MAX;
+      setCurrentAngle(newAngle);
+      
+      // Report angle to parent component for autoplay
+      if (onAngleChange) {
+        onAngleChange(newAngle);
+      }
     });
 
     const lengthListener = ropeLength.addListener(({ value }) => {
@@ -111,72 +107,216 @@ const AnimatedHook: React.FC<AnimatedHookProps> = ({
       if (swingAnimation.current) {
         swingAnimation.current.stop();
       }
+      if (ga.extensionAnimationRef) {
+        ga.extensionAnimationRef.stop();
+        ga.extensionAnimationRef = null;
+      }
+      
+      // Reset global state
+      ga.shouldAutoRetract = false;
+      ga.nearestItemInfo = null;
     };
   }, []);
 
   // Handle hook state changes
-// Cập nhật useEffect xử lý trạng thái hook trong AnimatedHook
-useEffect(() => {
-  try {
-    if (hookState === 'swinging') {
-      console.log('Starting swinging animation');
-      startSwinging();
-    } else if (hookState === 'extending') {
-      console.log('Starting extending animation');
-      extend();
-    } else if (hookState === 'retracting') {
-      console.log('Starting retracting animation');
-      retract();
-    } else if (hookState === 'pulling') {
-      console.log('Hook is pulling - paused momentarily with item');
-      // Khi ở trạng thái 'pulling', chúng ta chỉ dừng lại
-      // và không thực hiện animation nào, đợi engine chuyển sang 'retracting'
-      
-      // Dừng animation đung đưa nếu có
-      if (swingAnimation.current) {
-        swingAnimation.current.stop();
-      }
-      
-      // Không gọi hàm extend hoặc retract để giữ nguyên vị trí hiện tại
-    } else {
-      // Nếu trạng thái không hợp lệ, trở về swinging
-      console.warn('Invalid hook state:', hookState);
-      startSwinging();
-    }
-  } catch (error) {
-    console.error('Error in hook state effect:', error);
-    // Trở về trạng thái an toàn
-    startSwinging();
-  }
-}, [hookState]);
-
-  // Check for collisions while extending
-  useEffect(() => {
-    if (hookState === 'extending' && !isProcessingCollision) {
-      const collision = checkCollision(currentAngle, currentLength, item => {
-        // This callback will be invoked if collision is detected
-        setIsProcessingCollision(true);
-        onItemCaught(item);
-      });
-
-      // If we found a collision, stop checking for more
-      if (collision) {
-        setIsProcessingCollision(true);
-      }
-    }
-  }, [currentLength, currentAngle, hookState]);
-
-  // Reset the collision processing flag when state changes from extending to retracting
   useEffect(() => {
     if (hookState === 'retracting' && isProcessingCollision) {
       setIsProcessingCollision(false);
     }
+
+    // Reset auto-retract flag when state changes
+    if (hookState !== 'extending') {
+      ga.shouldAutoRetract = false;
+    }
+
+    // Ensure retraction even without caught item
+    if (hookState === 'retracting' && caughtItem === null) {
+      retract();
+    }
+  }, [hookState, caughtItem]);
+
+  // Rotation interpolation for the hook's swinging motion
+  const rotation = swingAngle.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [
+      `-${GAME_CONFIG.SWING_ANGLE_MAX}deg`,
+      '0deg',
+      `${GAME_CONFIG.SWING_ANGLE_MAX}deg`,
+    ],
+  });
+
+  // Handle hook state changes
+  useEffect(() => {
+    try {
+      if (hookState === 'swinging') {
+        console.log('Starting swinging animation');
+        startSwinging();
+      } else if (hookState === 'extending') {
+        console.log('Starting extending animation');
+        extend();
+      } else if (hookState === 'retracting') {
+        console.log('Starting retracting animation');
+        retract();
+      } else if (hookState === 'pulling') {
+        console.log('Hook is pulling - paused momentarily with item');
+        // When in 'pulling' state, pause temporarily
+        
+        // Stop swinging animation if running
+        if (swingAnimation.current) {
+          swingAnimation.current.stop();
+        }
+        
+        // Stop extension animation if running
+        if (ga.extensionAnimationRef) {
+          ga.extensionAnimationRef.stop();
+          ga.extensionAnimationRef = null;
+        }
+      } else {
+        // Invalid state, revert to swinging
+        console.warn('Invalid hook state:', hookState);
+        startSwinging();
+      }
+    } catch (error) {
+      console.error('Error in hook state effect:', error);
+      // Revert to safe state
+      startSwinging();
+    }
   }, [hookState]);
+
+  // Check for collisions while extending
+  useEffect(() => {
+    if (hookState === 'extending' && !isProcessingCollision) {
+      // Check for direct collisions
+      const collision = checkCollision(currentAngle, currentLength, item => {
+        // Callback when collision is detected
+        setIsProcessingCollision(true);
+        
+        // Hide the item in the parent component
+        if (onItemVisibilityChange && item.id !== undefined) {
+          console.log('Hiding original item:', item.id);
+          onItemVisibilityChange(item.id, false);
+        }
+        
+        // Call the original onItemCaught callback
+        onItemCaught(item);
+      });
+
+      // If collision found, stop checking
+      if (collision) {
+        setIsProcessingCollision(true);
+        
+        // Also hide the item returned directly if not handled by callback
+        if (onItemVisibilityChange && collision.id !== undefined) {
+          console.log('Hiding original item (direct):', collision.id);
+          onItemVisibilityChange(collision.id, false);
+        }
+      } else {
+        // Check for items in the future path of the hook
+        checkItemsInFuturePath();
+      }
+    }
+  }, [currentLength, currentAngle, hookState]);
+
+  // Check for items in the future path of the hook
+  const checkItemsInFuturePath = () => {
+    if (ga.shouldAutoRetract) return; // Skip if already decided to retract
+    
+    // Calculate hook origin position
+    const hookOriginX = SCREEN_WIDTH / 2;
+    const hookOriginY = SCREEN_HEIGHT * 0.15;
+    
+    // Calculate current hook endpoint
+    const angleRad = -currentAngle * (Math.PI / 180);
+    const hookX = Math.sin(angleRad) * currentLength;
+    const hookY = Math.cos(angleRad) * currentLength;
+    const currentHookEndX = hookOriginX + hookX;
+    const currentHookEndY = hookOriginY + hookY;
+    
+    // Check several positions ahead in the hook's path
+    let nearestItem: GameItem | null = null;
+    let nearestDistance = Infinity;
+    
+    // Check future positions, increasing length each time
+    for (let step = 1; step <= GAME_CONFIG.HOOK_MAX_PREDICTION_STEPS; step++) {
+      // Calculate future hook length
+      const futureLength = currentLength + (step * GAME_CONFIG.HOOK_PREDICTION_STEP);
+      
+      // Don't check beyond maximum rope length
+      if (futureLength > GAME_CONFIG.ROPE_MAX_LENGTH) break;
+      
+      // Calculate future hook position
+      const futureHookX = Math.sin(angleRad) * futureLength;
+      const futureHookY = Math.cos(angleRad) * futureLength;
+      const futureHookEndX = hookOriginX + futureHookX;
+      const futureHookEndY = hookOriginY + futureHookY;
+      
+      // Custom callback to detect items without triggering catching
+      const detectCallback = (item: GameItem) => {
+        // Calculate distance from current hook to item center
+        const itemCenterX = item.x + item.width / 2;
+        const itemCenterY = item.y + item.height / 2;
+        
+        const distance = Math.sqrt(
+          Math.pow(currentHookEndX - itemCenterX, 2) + 
+          Math.pow(currentHookEndY - itemCenterY, 2)
+        );
+        
+        // Store nearest item
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestItem = item;
+        }
+      };
+      
+      // Check for items at this future position
+      const result = checkCollision(currentAngle, futureLength, detectCallback);
+      
+      // Also consider items returned directly
+      if (result) {
+        const itemCenterX = result.x + result.width / 2;
+        const itemCenterY = result.y + result.height / 2;
+        
+        const distance = Math.sqrt(
+          Math.pow(currentHookEndX - itemCenterX, 2) + 
+          Math.pow(currentHookEndY - itemCenterY, 2)
+        );
+        
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestItem = result;
+        }
+      }
+    }
+    
+    // Update global state with nearest item info
+    ga.nearestItemInfo = nearestItem ? { item: nearestItem, distance: nearestDistance } : null;
+    
+    // Auto-retract if item is within proximity threshold
+    if (nearestItem && nearestDistance <= GAME_CONFIG.ITEM_PROXIMITY_THRESHOLD) {
+      console.log(`Item ${nearestItem.type} detected nearby at ${nearestDistance.toFixed(2)}px - auto-retracting`);
+      
+      // Mark for auto-retract
+      ga.shouldAutoRetract = true;
+      
+      // Stop extension animation
+      if (ga.extensionAnimationRef) {
+        ga.extensionAnimationRef.stop();
+        ga.extensionAnimationRef = null;
+      }
+      
+      // Signal extension complete to trigger retraction
+      onExtendComplete();
+    }
+  };
 
   // Start the swinging animation
   const startSwinging = () => {
-    // Reset the rope length
+    // Reset rope length
     ropeLength.setValue(GAME_CONFIG.ROPE_MIN_LENGTH);
+    
+    // Reset auto-retract flags
+    ga.shouldAutoRetract = false;
+    ga.nearestItemInfo = null;
 
     // Create swinging animation sequence
     swingAnimation.current = Animated.loop(
@@ -214,27 +354,31 @@ useEffect(() => {
         swingAnimation.current.stop();
       }
   
-      // Lấy kích thước màn hình hiện tại
+      // Reset auto-retract flags
+      ga.shouldAutoRetract = false;
+      ga.nearestItemInfo = null;
+  
+      // Get current screen height
       const { height: CURRENT_SCREEN_HEIGHT } = Dimensions.get('screen');
       
-      // Tính toán độ dài tối đa dựa trên kích thước màn hình
-      // Thường là khoảng 70-75% chiều cao màn hình để không kéo quá xa
-      const dynamicMaxLength = Math.min(
+      // Calculate target length based on screen size (75% of screen height)
+      const targetLength = ga.targetRopeLength || Math.min(
         GAME_CONFIG.ROPE_MAX_LENGTH,
-        CURRENT_SCREEN_HEIGHT * 0.85
+        CURRENT_SCREEN_HEIGHT * 0.75
       );
       
-      console.log(`Extending rope to ${dynamicMaxLength}px (screen height: ${CURRENT_SCREEN_HEIGHT}px)`);
+      console.log(`Extending rope to ${targetLength}px (screen height: ${CURRENT_SCREEN_HEIGHT}px)`);
   
       // Animate the rope extension
-      Animated.timing(ropeLength, {
-        toValue: dynamicMaxLength,
-        duration:
-          (dynamicMaxLength - GAME_CONFIG.ROPE_MIN_LENGTH) /
-          GAME_CONFIG.EXTEND_SPEED,
+      ga.extensionAnimationRef = Animated.timing(ropeLength, {
+        toValue: targetLength,
+        duration: (targetLength - GAME_CONFIG.ROPE_MIN_LENGTH) / GAME_CONFIG.EXTEND_SPEED,
         easing: Easing.linear,
         useNativeDriver: false,
-      }).start(({finished}) => {
+      });
+      
+      ga.extensionAnimationRef.start(({finished}) => {
+        ga.extensionAnimationRef = null;
         if (finished) {
           onExtendComplete();
         } else {
@@ -249,82 +393,95 @@ useEffect(() => {
   };
 
   // Retract the hook
- // 1. Thêm xử lý lỗi cho hàm retract
- // Thay thế hàm retract trong component AnimatedHook để tạo hiệu ứng kéo từ từ
- const retract = () => {
-  try {
-    // Tránh lỗi khi currentLength chưa được khởi tạo
-    if (typeof currentLength !== 'number') {
-      ropeLength.setValue(GAME_CONFIG.ROPE_MIN_LENGTH);
-      onRetractComplete();
-      return;
-    }
+  const retract = () => {
+    try {
+      // Stop extension animation if still running
+      if (ga.extensionAnimationRef) {
+        ga.extensionAnimationRef.stop();
+        ga.extensionAnimationRef = null;
+      }
+      
+      // Handle case where currentLength is not initialized
+      if (typeof currentLength !== 'number') {
+        ropeLength.setValue(GAME_CONFIG.ROPE_MIN_LENGTH);
+        onRetractComplete();
+        return;
+      }
 
-    // Calculate retraction speed based on caught item
-    const retractionSpeed = caughtItem
-      ? getRetractionSpeed(caughtItem.weight)
-      : GAME_CONFIG.BASE_RETRACT_SPEED;
+      // Calculate retraction speed based on item weight
+      const retractionSpeed = caughtItem
+        ? getRetractionSpeed(caughtItem.weight)
+        : GAME_CONFIG.BASE_RETRACT_SPEED;
 
-    // Calculate retraction duration - Tăng thời gian kéo lên để tạo hiệu ứng kéo chậm
-    const retractDistance = Math.max(0, currentLength - GAME_CONFIG.ROPE_MIN_LENGTH);
-    
-    // Điều chỉnh thời gian kéo dựa trên khối lượng của vật phẩm
-    // Vật phẩm càng nặng, kéo càng chậm
-    let retractDuration = Math.max(100, retractDistance / retractionSpeed);
-    
-    // Điều chỉnh thời gian dựa trên vật phẩm
-    if (caughtItem) {
-      // Tăng thời gian lên tối thiểu 1000ms cho hiệu ứng mượt mà,
-      // và thêm thời gian dựa trên weight để vật nặng kéo chậm hơn
-      retractDuration = Math.max(1000, retractDuration * (1 + caughtItem.weight / 10));
-      console.log(`Retracting with item of weight ${caughtItem.weight}, duration: ${retractDuration}ms`);
-    }
+      // Calculate retraction distance
+      const retractDistance = Math.max(0, currentLength - GAME_CONFIG.ROPE_MIN_LENGTH);
+      
+      // Adjust retraction duration based on item weight
+      // Heavier items retract slower
+      let retractDuration = Math.max(100, retractDistance / retractionSpeed);
+      
+      if (caughtItem) {
+        // Increase duration for caught items with smooth animation
+        retractDuration = Math.max(1000, retractDuration * (1 + caughtItem.weight / 10));
+        console.log(`Retracting with item of weight ${caughtItem.weight}, duration: ${retractDuration}ms`);
+      } else if (ga.shouldAutoRetract && ga.nearestItemInfo) {
+        // Faster auto-retract for proximity detection
+        console.log(`Auto-retracting: detected item nearby at ${ga.nearestItemInfo.distance.toFixed(2)}px`);
+        retractDuration = Math.max(300, retractDuration * 0.6);
+        ga.shouldAutoRetract = false;
+      }
 
-    // Animate the rope retraction với thời gian đã điều chỉnh
-    Animated.timing(ropeLength, {
-      toValue: GAME_CONFIG.ROPE_MIN_LENGTH,
-      duration: retractDuration,
-      // Thay đổi easing để tạo hiệu ứng kéo tự nhiên hơn
-      // Ban đầu kéo nhanh sau đó chậm dần
-      easing: caughtItem ? Easing.out(Easing.cubic) : Easing.linear,
-      useNativeDriver: false, // Layout properties không thể sử dụng native driver
-    }).start(({finished}) => {
-      if (finished) {
-        // If an item was caught, animate its disappearance
-        if (caughtItem) {
-          try {
-            // Tăng thời gian biến mất của vật phẩm
-            Animated.timing(caughtItemOpacity, {
-              toValue: 0,
-              duration: 500, // Tăng từ 300ms lên 500ms
-              easing: Easing.out(Easing.ease),
-              useNativeDriver: true, // Opacity có thể sử dụng native driver
-            }).start(() => {
-              // Reset opacity for next time
+      // Animate rope retraction
+      Animated.timing(ropeLength, {
+        toValue: GAME_CONFIG.ROPE_MIN_LENGTH,
+        duration: retractDuration,
+        // More natural retraction easing
+        easing: caughtItem ? Easing.out(Easing.cubic) : Easing.linear,
+        useNativeDriver: false,
+      }).start(({finished}) => {
+        if (finished) {
+          // If item was caught, animate its disappearance
+          if (caughtItem) {
+            try {
+              // Fade out caught item
+              Animated.timing(caughtItemOpacity, {
+                toValue: 0,
+                duration: 500,
+                easing: Easing.out(Easing.ease),
+                useNativeDriver: true,
+              }).start(() => {
+                // Reset opacity for next item
+                caughtItemOpacity.setValue(1);
+                // Signal completion
+                onRetractComplete();
+              });
+            } catch (error) {
+              console.error('Error animating caught item:', error);
               caughtItemOpacity.setValue(1);
-              // Signal completion
               onRetractComplete();
-            });
-          } catch (error) {
-            console.error('Error animating caught item:', error);
-            caughtItemOpacity.setValue(1);
+            }
+          } else {
+            // Reset auto-retract state
+            ga.shouldAutoRetract = false;
+            ga.nearestItemInfo = null;
             onRetractComplete();
           }
         } else {
+          // Ensure callback is called even if animation doesn't finish
+          ga.shouldAutoRetract = false;
+          ga.nearestItemInfo = null;
           onRetractComplete();
         }
-      } else {
-        // Đảm bảo callback vẫn được gọi ngay cả khi animation không kết thúc
-        onRetractComplete();
-      }
-    });
-  } catch (error) {
-    console.error('Error in retract function:', error);
-    // Đảm bảo về trạng thái an toàn
-    ropeLength.setValue(GAME_CONFIG.ROPE_MIN_LENGTH);
-    onRetractComplete();
-  }
-};
+      });
+    } catch (error) {
+      console.error('Error in retract function:', error);
+      // Return to safe state
+      ropeLength.setValue(GAME_CONFIG.ROPE_MIN_LENGTH);
+      ga.shouldAutoRetract = false;
+      ga.nearestItemInfo = null;
+      onRetractComplete();
+    }
+  };
 
   // Get the image source for a caught item
   const getItemSource = (item: GameItem) => {
@@ -374,7 +531,6 @@ useEffect(() => {
               {
                 position: 'absolute',
                 top: ropeLength,
-                // marginLeft: -GAME_CONFIG.HOOK_SIZE / 2,
               },
             ]}>
             <Image
@@ -393,8 +549,8 @@ useEffect(() => {
                 styles.caughtItem,
                 {
                   position: 'absolute',
-                  top: currentLength + GAME_CONFIG.HOOK_SIZE / 2, // Using the tracked state value instead
-                  marginLeft: -((caughtItem.width || 30) / 2),
+                  top: currentLength + GAME_CONFIG.HOOK_SIZE / 2,
+                  // marginLeft: -((caughtItem.width || 30) / 2),
                   opacity: caughtItemOpacity,
                 },
               ]}>

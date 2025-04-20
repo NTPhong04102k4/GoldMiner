@@ -1,36 +1,76 @@
-// src/component/engine.ts
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameItem, GameState, HookState, ItemType } from './type';
 import { Dimensions } from 'react-native';
 import { GAME_CONFIG } from '../hooks';
-const { width: screenWidth, height: screenHeight } = Dimensions.get('screen');
-const aspectRatio = screenWidth / screenHeight;
-const expansionRatio = aspectRatio > 1.5 ? 0.6 : 0.4; // Màn hình càng rộng, mở rộng càng nhiều
 
+const { width: screenWidth, height: screenHeight } = Dimensions.get('screen');
+
+// Updated level configurations to be more like classic Gold Miner
 const LEVEL_CONFIGS = [
+  // Level 1 - Basic introduction
   {
     targetScore: 650,
     timeLimit: 60,
     items: [
-      { type: 'gold1', count: 3, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 2, valueRange: [150, 200], weightRange: [3, 4] },
-      { type: 'gold3', count: 1, valueRange: [500, 500], weightRange: [5, 5] },
+      { type: 'gold1', count: 4, valueRange: [50, 100], weightRange: [2, 3] },
+      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
       { type: 'rock1', count: 4, valueRange: [10, 20], weightRange: [4, 6] },
-      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [6, 8] },
-      { type: 'tnt', count: 1, valueRange: [-100, -100], weightRange: [1, 1] },
+      { type: 'rock2', count: 2, valueRange: [30, 50], weightRange: [6, 8] },
     ],
   },
+  // Level 2 - Introduce higher value gold
   {
     targetScore: 1200,
-    timeLimit: 50,
+    timeLimit: 60,
+    items: [
+      { type: 'gold1', count: 3, valueRange: [50, 100], weightRange: [2, 3] },
+      { type: 'gold2', count: 3, valueRange: [200, 250], weightRange: [3, 4] },
+      { type: 'gold3', count: 1, valueRange: [500, 600], weightRange: [5, 6] },
+      { type: 'rock1', count: 3, valueRange: [10, 20], weightRange: [4, 6] },
+      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [6, 8] },
+      { type: 'tnt', count: 1, valueRange: [-150, -100], weightRange: [1, 1] },
+    ],
+  },
+  // Level 3 - Introduce the diamond (gold4)
+  {
+    targetScore: 1800,
+    timeLimit: 60,
     items: [
       { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
-      { type: 'gold2', count: 3, valueRange: [150, 200], weightRange: [3, 4] },
-      { type: 'gold3', count: 1, valueRange: [500, 500], weightRange: [5, 5] },
-      { type: 'gold4', count: 1, valueRange: [800, 1000], weightRange: [8, 10] },
-      { type: 'rock1', count: 3, valueRange: [10, 20], weightRange: [4, 6] },
+      { type: 'gold2', count: 3, valueRange: [200, 250], weightRange: [3, 4] },
+      { type: 'gold3', count: 2, valueRange: [500, 600], weightRange: [5, 6] },
+      { type: 'gold4', count: 1, valueRange: [1000, 1200], weightRange: [8, 10] },
+      { type: 'rock1', count: 2, valueRange: [10, 20], weightRange: [4, 6] },
       { type: 'rock2', count: 2, valueRange: [30, 50], weightRange: [6, 8] },
-      { type: 'tnt', count: 2, valueRange: [-100, -100], weightRange: [1, 1] },
+      { type: 'tnt', count: 2, valueRange: [-200, -150], weightRange: [1, 1] },
+    ],
+  },
+  // Level 4 - Challenging level with time pressure
+  {
+    targetScore: 2500,
+    timeLimit: 50, // Less time
+    items: [
+      { type: 'gold1', count: 2, valueRange: [50, 100], weightRange: [2, 3] },
+      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
+      { type: 'gold3', count: 2, valueRange: [500, 600], weightRange: [5, 6] },
+      { type: 'gold4', count: 1, valueRange: [1000, 1200], weightRange: [8, 10] },
+      { type: 'rock1', count: 3, valueRange: [10, 20], weightRange: [4, 6] },
+      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [7, 9] },
+      { type: 'tnt', count: 3, valueRange: [-250, -200], weightRange: [1, 1] },
+    ],
+  },
+  // Level 5 - Final challenge
+  {
+    targetScore: 3500,
+    timeLimit: 45, // Even less time
+    items: [
+      { type: 'gold1', count: 1, valueRange: [50, 100], weightRange: [2, 3] },
+      { type: 'gold2', count: 2, valueRange: [200, 250], weightRange: [3, 4] },
+      { type: 'gold3', count: 3, valueRange: [500, 600], weightRange: [5, 6] },
+      { type: 'gold4', count: 2, valueRange: [1000, 1500], weightRange: [8, 10] },
+      { type: 'rock1', count: 2, valueRange: [10, 20], weightRange: [4, 6] },
+      { type: 'rock2', count: 3, valueRange: [30, 50], weightRange: [7, 9] },
+      { type: 'tnt', count: 3, valueRange: [-300, -250], weightRange: [1, 1] },
     ],
   },
 ];
@@ -56,48 +96,59 @@ export const useGameEngine = () => {
   const gameTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hookTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Generate random items for the level
-  // Cập nhật hàm generateItems trong engine.ts để tăng khoảng cách giữa các vật phẩm
+  // Sound effect references (mock for now)
+  const soundRefs = useRef({
+    swing: null,
+    extend: null,
+    catch: null,
+    retract: null,
+    collect: null,
+    explode: null,
+  });
+
+  // Generate random items for the level with improved positioning
   const generateItems = (levelIndex: number): GameItem[] => {
-    const levelConfig = LEVEL_CONFIGS[levelIndex];
+    const levelConfig = LEVEL_CONFIGS[levelIndex] || LEVEL_CONFIGS[LEVEL_CONFIGS.length - 1];
     const items: GameItem[] = [];
-    const { width: screenWidth, height: screenHeight } = Dimensions.get('screen');
 
     // Playable area (excluding UI elements)
-    const playableAreaTop = 100; // Tăng từ 80 lên 100 để tránh vật phẩm quá gần header
-    const playableAreaBottom = screenHeight - 60; // Tăng khoảng cách với viền dưới
-    const playableAreaLeft = 120; // Tăng từ 40 lên 60
-    const playableAreaRight = screenWidth - 60; // Tăng từ 40 lên 60
+    const playableAreaTop = 100;
+    const playableAreaBottom = screenHeight - 60;
+    const playableAreaLeft = 60;
+    const playableAreaRight = screenWidth - 60;
 
-    // Tăng khoảng cách tối thiểu giữa các vật phẩm
-    const MIN_DISTANCE = 30; // Tăng từ 70 lên 100
+    // Minimum distance between items
+    const MIN_DISTANCE = 40;
 
-    // Sort items by size and type to place larger/more valuable items at the bottom
-    // and smaller items at the top
-    const sortedItemConfigs = [...levelConfig.items].sort((a, b) => {
-      // First prioritize gold vs non-gold
-      const aIsGold = a.type.startsWith('gold');
-      const bIsGold = b.type.startsWith('gold');
+    // Group items by type for organized placement
+    const goldItems = levelConfig.items.filter(config => config.type.startsWith('gold'));
+    const rockItems = levelConfig.items.filter(config => config.type.startsWith('rock'));
+    const tntItems = levelConfig.items.filter(config => config.type === 'tnt');
 
-      if (aIsGold && !bIsGold) return 1; // Gold goes down (later in the array)
-      if (!aIsGold && bIsGold) return -1; // Non-gold goes up
+    // Sort gold items by value (highest to lowest)
+    goldItems.sort((a, b) => b.valueRange[1] - a.valueRange[1]);
 
-      // Within same category, sort by value (higher value goes down)
-      return b.valueRange[1] - a.valueRange[1];
-    });
-
-    // Tối đa số lượng vật phẩm hiển thị dựa trên kích thước màn hình
-    // Tránh quá nhiều vật phẩm trên màn hình nhỏ
-    const calculateMaxItems = () => {
-      const playableArea =
-        (playableAreaRight - playableAreaLeft) * (playableAreaBottom - playableAreaTop);
-      // Tính toán khoảng không gian cần thiết cho mỗi vật phẩm (bao gồm khoảng cách)
-      const avgItemSpace = Math.PI * Math.pow(MIN_DISTANCE / 1.5, 2); // Ước tính diện tích
-      return Math.floor(playableArea / avgItemSpace);
-    };
-
-    const maxItems = calculateMaxItems();
-    let totalItems = 0;
+    // Create placement zones
+    const zones = [
+      {
+        name: 'bottom',
+        top: playableAreaTop + (playableAreaBottom - playableAreaTop) * 0.66,
+        bottom: playableAreaBottom,
+        itemTypes: goldItems.slice(0, 2), // Most valuable gold goes at bottom
+      },
+      {
+        name: 'middle',
+        top: playableAreaTop + (playableAreaBottom - playableAreaTop) * 0.33,
+        bottom: playableAreaTop + (playableAreaBottom - playableAreaTop) * 0.66,
+        itemTypes: [...goldItems.slice(2), ...rockItems.slice(0, 2)], // Mix of gold and rocks
+      },
+      {
+        name: 'top',
+        top: playableAreaTop,
+        bottom: playableAreaTop + (playableAreaBottom - playableAreaTop) * 0.33,
+        itemTypes: [...rockItems.slice(2), ...tntItems], // Rocks and TNT at top
+      },
+    ];
 
     // Function to check if a position is valid (not too close to other items)
     const isValidPosition = (x: number, y: number, width: number, height: number): boolean => {
@@ -123,111 +174,51 @@ export const useGameEngine = () => {
       return true;
     };
 
-    // Chia màn hình thành lưới để đặt vật phẩm một cách có hệ thống hơn
-    const gridRows = 3; // Số hàng trong lưới
-    const gridCols = 4; // Số cột trong lưới
-
-    const cellWidth = (playableAreaRight - playableAreaLeft) / gridCols;
-    const cellHeight = (playableAreaBottom - playableAreaTop) / gridRows;
-
-    // Mảng theo dõi các ô đã sử dụng
-    const usedCells: boolean[][] = Array(gridRows)
-      .fill(false)
-      .map(() => Array(gridCols).fill(false));
-
-    // Function để tìm ô trống ngẫu nhiên
-    const findRandomEmptyCell = (): [number, number] | null => {
-      // Tạo danh sách các ô còn trống
-      const emptyCells: [number, number][] = [];
-      for (let row = 0; row < gridRows; row++) {
-        for (let col = 0; col < gridCols; col++) {
-          if (!usedCells[row][col]) {
-            emptyCells.push([row, col]);
-          }
-        }
-      }
-
-      if (emptyCells.length === 0) return null;
-
-      // Chọn ngẫu nhiên một ô trống
-      const randomIndex = Math.floor(Math.random() * emptyCells.length);
-      return emptyCells[randomIndex];
-    };
-
-    // Function to get size based on item type
+    // Function to get size based on item type (more accurate sizes)
     const getItemSize = (type: string): { width: number; height: number } => {
       switch (type) {
-        case 'gold1':
+        case 'gold1': // Small gold
           return { width: 30, height: 30 };
-        case 'gold2':
+        case 'gold2': // Medium gold
           return { width: 40, height: 40 };
-        case 'gold3':
+        case 'gold3': // Large gold
           return { width: 50, height: 50 };
-        case 'gold4':
-          return { width: 60, height: 60 };
-        case 'rock1':
+        case 'gold4': // Diamond
           return { width: 45, height: 45 };
-        case 'rock2':
+        case 'rock1': // Small rock
+          return { width: 45, height: 45 };
+        case 'rock2': // Large rock
           return { width: 55, height: 55 };
-        case 'tnt':
+        case 'tnt': // TNT
           return { width: 40, height: 40 };
         default:
           return { width: 30, height: 30 };
       }
     };
 
-    // Determine vertical zones for different item types
-    const totalPlayableHeight = playableAreaBottom - playableAreaTop;
-    const zoneHeight = totalPlayableHeight / gridRows;
+    // Place items in each zone
+    zones.forEach(zone => {
+      // Process each item type in this zone
+      zone.itemTypes.forEach(itemConfig => {
+        // Create the specified number of this item type
+        for (let i = 0; i < itemConfig.count; i++) {
+          // Get item size
+          const { width, height } = getItemSize(itemConfig.type);
 
-    // Process each item config
-    let remainingConfigs = [...sortedItemConfigs];
-    while (remainingConfigs.length > 0 && totalItems < maxItems) {
-      // Lấy ra một loại vật phẩm từ danh sách còn lại
-      const configIndex = Math.floor(Math.random() * remainingConfigs.length);
-      const itemConfig = remainingConfigs[configIndex];
+          // Try to find a valid position (max 50 attempts)
+          let positionFound = false;
+          let attempts = 0;
 
-      // Nếu đã tạo đủ số lượng của loại này, loại bỏ khỏi danh sách
-      if (itemConfig.count <= 0) {
-        remainingConfigs.splice(configIndex, 1);
-        continue;
-      }
+          while (!positionFound && attempts < 50) {
+            attempts++;
 
-      // Giảm số lượng của loại này
-      itemConfig.count--;
+            // Calculate random position within this zone
+            const x =
+              Math.random() * (playableAreaRight - playableAreaLeft - width) + playableAreaLeft;
+            const y = Math.random() * (zone.bottom - zone.top - height) + zone.top;
 
-      // Determine which zone to place this item type (higher index = lower on screen)
-      const preferredRow = Math.floor(
-        (sortedItemConfigs.indexOf(itemConfig) / sortedItemConfigs.length) * gridRows
-      );
-
-      // Get item size
-      const { width, height } = getItemSize(itemConfig.type);
-
-      // Tìm một ô còn trống
-      let cellFound = false;
-      let row = preferredRow;
-
-      // Ưu tiên tìm ô ở hàng ưu tiên, sau đó mới tìm ở các hàng khác
-      for (let r = 0; r < gridRows && !cellFound; r++) {
-        row = (preferredRow + r) % gridRows;
-        for (let col = 0; col < gridCols; col++) {
-          if (!usedCells[row][col]) {
-            // Tính vị trí trong ô với một chút ngẫu nhiên
-            const cellX = playableAreaLeft + col * cellWidth;
-            const cellY = playableAreaTop + row * cellHeight;
-
-            // Thêm ngẫu nhiên trong ô để tránh vật phẩm xếp thành hàng
-            const offsetX = (cellWidth - width) * 0.6 * Math.random();
-            const offsetY = (cellHeight - height) * 0.6 * Math.random();
-
-            const x = cellX + offsetX;
-            const y = cellY + offsetY;
-
+            // Check if position is valid
             if (isValidPosition(x, y, width, height)) {
-              usedCells[row][col] = true;
-              cellFound = true;
-
               // Random value and weight within configured range
               const value = Math.floor(
                 Math.random() * (itemConfig.valueRange[1] - itemConfig.valueRange[0] + 1) +
@@ -239,6 +230,7 @@ export const useGameEngine = () => {
                   itemConfig.weightRange[0]
               );
 
+              // Add item to the list
               items.push({
                 id: `${itemConfig.type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 type: itemConfig.type as ItemType,
@@ -251,21 +243,19 @@ export const useGameEngine = () => {
                 collected: false,
               });
 
-              totalItems++;
-              break;
+              positionFound = true;
             }
           }
+
+          // If couldn't find position after 50 attempts, skip this item
+          if (!positionFound) {
+            console.log(`Could not place ${itemConfig.type}, skipping`);
+          }
         }
-        if (cellFound) break;
-      }
+      });
+    });
 
-      // Nếu không tìm được ô nào phù hợp, bỏ qua vật phẩm này
-      if (!cellFound) {
-        console.log(`Could not place ${itemConfig.type}, skipping`);
-      }
-    }
-
-    console.log(`Generated ${items.length} items with minimum spacing of ${MIN_DISTANCE}px`);
+    console.log(`Generated ${items.length} items for level ${levelIndex + 1}`);
     return items;
   };
 
@@ -298,7 +288,7 @@ export const useGameEngine = () => {
 
   // Start the next level
   const startNextLevel = () => {
-    // Calculate level index
+    // Calculate level index (capped at max level)
     const nextLevelIndex = Math.min(gameState.level, LEVEL_CONFIGS.length - 1);
 
     // Generate items for the next level
@@ -413,31 +403,27 @@ export const useGameEngine = () => {
       hookTimerRef.current = null;
     }
 
-    // Đảm bảo trạng thái hook là 'swinging' nhưng giữ nguyên góc hiện tại
+    // Ensure hook state is 'swinging' but keep current angle
     setGameState(prev => {
-      // Nếu trạng thái đã là swinging, không thay đổi gì cả
+      // If state is already swinging, don't change anything
       if (prev.hookState === 'swinging') {
-        return prev; // Giữ nguyên tất cả các giá trị
+        return prev;
       }
 
-      // Nếu trạng thái chưa phải swinging, chỉ cập nhật trạng thái, giữ nguyên góc và hướng
       console.log('[Engine] Changing hook state to swinging while preserving angle');
       return {
         ...prev,
         hookState: 'swinging',
-        // Không thay đổi hookAngle và hookDirection để giữ nguyên vị trí
       };
     });
 
-    // Mở rộng hàm để đảm bảo tạo timer mới
+    // Start new timer after a short delay to ensure state is updated
     setTimeout(() => {
-      // Start new timer - delay để đảm bảo state đã được cập nhật
       console.log('[Engine] Creating new hook timer');
       hookTimerRef.current = setInterval(() => {
         setGameState(prev => {
           // Skip if not in swinging state
           if (prev.hookState !== 'swinging') {
-            console.log(`[Engine] Skip update, state is ${prev.hookState}`);
             return prev;
           }
 
@@ -460,8 +446,8 @@ export const useGameEngine = () => {
             hookDirection: newDirection,
           };
         });
-      }, 50);
-    }, 50); // Thêm delay nhỏ
+      }, 50); // Update every 50ms for smoother animation
+    }, 50);
   };
 
   // Toggle hook state (extend/retract)
@@ -492,7 +478,7 @@ export const useGameEngine = () => {
           return prev;
 
         default:
-          // Nếu trạng thái không hợp lệ, đặt về swinging
+          // If state is invalid, set to swinging
           console.log(`[Engine] Invalid state (${prev.hookState}), setting to swinging`);
           return {
             ...prev,
@@ -537,8 +523,7 @@ export const useGameEngine = () => {
         newGameStatus = 'levelCompleted';
       }
 
-      // Phần quan trọng: Luôn đặt lại hookState thành 'swinging'
-      // trừ khi trò chơi đã hoàn thành cấp độ
+      // Always set hookState back to 'swinging' unless game is over
       const newHookState = newGameStatus === 'levelCompleted' ? prev.hookState : 'swinging';
 
       return {
@@ -551,36 +536,38 @@ export const useGameEngine = () => {
       };
     });
 
-    // Nếu game vẫn đang chơi, khởi động lại quá trình đung đưa
+    // If game is still playing, restart the swinging process
     if (gameState.gameStatus === 'playing') {
       startHookSwinging();
     }
   };
 
-  // Calculate hook speed based on caught item weight and desired duration
+  // Calculate hook speed based on caught item weight
   const calculateHookSpeed = (weight?: number): number => {
-    // Độ dài tối đa của móc câu (thay đổi giá trị này theo thiết kế của bạn)
-    const maxHookLength = 300;
+    // Maximum rope length
+    const maxHookLength = GAME_CONFIG.ROPE_MAX_LENGTH;
 
-    // Thời gian mong muốn (2 giây)
-    const desiredDuration = 2000; // milliseconds
+    // Desired retraction duration (base time)
+    const baseRetractionTime = 2000; // 2 seconds in milliseconds
 
-    // Số lần cập nhật trong 1 giây (dựa vào interval của bạn, giả sử là 50ms)
+    // Updates per second (based on animation interval)
     const updatesPerSecond = 1000 / 50;
 
-    // Tốc độ cơ bản để hoàn thành trong 2 giây
-    const baseSpeed = maxHookLength / ((desiredDuration / 1000) * updatesPerSecond);
+    // Base speed to complete retraction in baseRetractionTime
+    const baseSpeed = maxHookLength / ((baseRetractionTime / 1000) * updatesPerSecond);
 
-    // Nếu không có weight được cung cấp, sử dụng weight của item đã bắt được
+    // Use caught item weight or default to 0
     const itemWeight = weight ?? (gameState.caughtItem ? gameState.caughtItem.weight : 0);
 
-    // Điều chỉnh tốc độ dựa theo trọng lượng
-    // Item nặng hơn sẽ kéo chậm hơn một chút
-    // Nhưng vẫn đảm bảo không quá lệch so với 2 giây
-    const weightFactor = 0.2; // Giảm ảnh hưởng của weight
+    // Weight factor: heavier items retract slower
+    const weightFactor = 0.2;
 
-    return Math.max(baseSpeed * 0.8, baseSpeed - itemWeight * weightFactor);
+    // Calculate adjusted speed (lower for heavier items)
+    // Ensure minimum speed of 40% of base speed to prevent extreme slowness
+    return Math.max(baseSpeed * 0.4, baseSpeed - itemWeight * weightFactor);
   };
+
+  // Update hook position and check for collisions
   const updateHookPosition = (
     angle: number,
     length: number,
@@ -591,422 +578,114 @@ export const useGameEngine = () => {
       return null;
     }
 
-    // Get screen dimensions and check orientation
+    // Get screen dimensions
     const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
-    const isLandscape = SCREEN_WIDTH > SCREEN_HEIGHT;
 
-    // Fix: we need to swap the sign of the angle to match the visual representation
-    const correctedAngle = -angle;
-
-    // Adjust angle based on orientation if needed
-    let adjustedAngle = correctedAngle;
-    if (isLandscape) {
-      // You may need to adjust this value based on your specific rotation direction
-      // adjustedAngle = correctedAngle - 90; // For landscape-left
-      // adjustedAngle = correctedAngle + 90; // For landscape-right
-    }
-
-    // Convert angle to radians
-    const angleRad = adjustedAngle * (Math.PI / 180);
-
-    // Calculate hook endpoint coordinates based on orientation
-    let hookX, hookY;
-    if (isLandscape) {
-      // For landscape mode, we can adjust our sin/cos calculations
-      // This might need adjustment based on your specific rotation
-      hookX = Math.sin(angleRad) * length;
-      hookY = Math.cos(angleRad) * length;
-
-      // Alternative calculation if needed:
-      // hookX = Math.cos(angleRad) * length;
-      // hookY = -Math.sin(angleRad) * length;
-    } else {
-      // Portrait mode - original calculation
-      hookX = Math.sin(angleRad) * length;
-      hookY = Math.cos(angleRad) * length;
-    }
-
-    // Hook origin position - adjust based on orientation
+    // Hook origin position (top center of screen)
     const hookOriginX = SCREEN_WIDTH / 2;
     const hookOriginY = SCREEN_HEIGHT * 0.15;
 
-    // Calculate hook endpoint
+    // Use negative angle to match visual representation
+    const correctedAngle = -angle;
+
+    // Convert angle to radians
+    const angleRad = correctedAngle * (Math.PI / 180);
+
+    // Calculate hook endpoint coordinates
+    const hookX = Math.sin(angleRad) * length;
+    const hookY = Math.cos(angleRad) * length;
+
+    // Calculate absolute position of hook endpoint
     const hookEndX = hookOriginX + hookX;
     const hookEndY = hookOriginY + hookY;
 
-    // Hook size
+    // Hook size for collision detection
     const hookSize = GAME_CONFIG.HOOK_SIZE || 30;
     const halfHookSize = hookSize / 2;
 
-    console.log(
-      `Hook position: (${hookEndX}, ${hookEndY}), Origin: (${hookOriginX}, ${hookOriginY}), 
-      Angle: ${angle}°, Corrected: ${correctedAngle}°, Orientation: ${
-        isLandscape ? 'Landscape' : 'Portrait'
-      }`
-    );
-
     // Create hook bounds for collision detection
     const hookBounds = {
-      left: hookEndX - 15,
-      right: hookEndX + 15,
+      left: hookEndX - halfHookSize,
+      right: hookEndX + halfHookSize,
       top: hookEndY - halfHookSize,
       bottom: hookEndY + halfHookSize,
     };
 
-    // NEW ALGORITHM STARTS HERE
-    // Create a list of valid items (not collected)
+    // Filter available items (not collected)
     const availableItems = gameState.items.filter(item => !item.collected);
 
     if (availableItems.length === 0) {
       return null;
     }
 
-    // Create an array with items and their metadata
-    const itemsWithMetadata = availableItems.map(item => {
-      // Calculate item center
-      const itemCenterX = item.x + item.width / 2;
-      const itemCenterY = item.y + item.height / 2;
-
-      // Calculate distance to hook
-      const distance = calculateDistance(hookEndX, hookEndY, itemCenterX, itemCenterY);
-
-      // Calculate all four corners of the item
-      const itemCorners = {
-        topLeft: { x: item.x, y: item.y },
-        topRight: { x: item.x + item.width, y: item.y },
-        bottomLeft: { x: item.x, y: item.y + item.height },
-        bottomRight: { x: item.x + item.width, y: item.y + item.height },
-      };
-
-      // Check if hook is aligned with item based on orientation
-      let isAligned = false;
-
-      if (isLandscape) {
-        // In landscape mode: X alignment is important
-        // Check if hook's X is close to the item's facing side (which could be left or right)
-        // And hook's Y is between the item's top and bottom
-
-        // Check if hook is approaching from left
-        const isApproachingFromLeft = hookEndX <= itemCorners.topLeft.x;
-
-        // Check if hook is approaching from right
-        const isApproachingFromRight = hookEndX >= itemCorners.topRight.x;
-
-        // Check Y alignment (hook Y is between item's top and bottom)
-        const isYAligned =
-          hookEndY >= itemCorners.topLeft.y - 10 && hookEndY <= itemCorners.bottomLeft.y + 10;
-
-        // Check X alignment with a margin
-        const xMargin = 20; // Pixels of margin to make it easier to catch
-
-        if (isApproachingFromLeft) {
-          // Hook coming from left, check if close enough to left face
-          isAligned = Math.abs(hookEndX - itemCorners.topLeft.x) < xMargin && isYAligned;
-        } else if (isApproachingFromRight) {
-          // Hook coming from right, check if close enough to right face
-          isAligned = Math.abs(hookEndX - itemCorners.topRight.x) < xMargin && isYAligned;
-        }
-      } else {
-        // In portrait mode: Y alignment is important
-        // Check if hook is approaching from top or bottom
-
-        // Check if hook is approaching from top
-        const isApproachingFromTop = hookEndY <= itemCorners.topLeft.y;
-
-        // Check if hook is approaching from bottom
-        const isApproachingFromBottom = hookEndY >= itemCorners.bottomLeft.y;
-
-        // Check X alignment (hook X is between item's left and right)
-        const isXAligned =
-          hookEndX >= itemCorners.topLeft.x - 10 && hookEndX <= itemCorners.topRight.x + 10;
-
-        // Check Y alignment with a margin
-        const yMargin = 20; // Pixels of margin
-
-        if (isApproachingFromTop) {
-          // Hook coming from top, check if close enough to top face
-          isAligned = Math.abs(hookEndY - itemCorners.topLeft.y) < yMargin && isXAligned;
-        } else if (isApproachingFromBottom) {
-          // Hook coming from bottom, check if close enough to bottom face
-          isAligned = Math.abs(hookEndY - itemCorners.bottomLeft.y) < yMargin && isXAligned;
-        }
-      }
-
-      // Calculate if the item is in the hook's path using traditional path calculation as backup
-      const isInHookPath = isItemInHookPath(
-        hookOriginX,
-        hookOriginY,
-        hookEndX,
-        hookEndY,
-        item,
-        angleRad,
-        isLandscape
-      );
-
-      // Check if item collides with hook bounds - expanded collision zone
+    // Check each item for collision
+    for (const item of availableItems) {
+      // Create item bounds
       const itemBounds = {
-        left: item.x - 5,
-        right: item.x + item.width + 5,
-        top: item.y - 15 - hookSize,
-        bottom: item.y + item.height + 15 + hookSize,
+        left: item.x,
+        right: item.x + item.width,
+        top: item.y,
+        bottom: item.y + item.height,
       };
 
+      // Check for collision (expanded hit box for easier catching)
+      const collisionMargin = 5; // pixels
       const isColliding =
-        (hookBounds.left <= itemBounds.right &&
-          hookBounds.right >= itemBounds.left &&
-          hookBounds.top <= itemBounds.bottom &&
-          hookBounds.bottom >= itemBounds.top) ||
-        isAligned; // Add alignment as another way to collide
+        hookBounds.left <= itemBounds.right + collisionMargin &&
+        hookBounds.right >= itemBounds.left - collisionMargin &&
+        hookBounds.top <= itemBounds.bottom + collisionMargin &&
+        hookBounds.bottom >= itemBounds.top - collisionMargin;
 
-      return {
-        item,
-        distance,
-        isInHookPath,
-        isColliding,
-      };
-    });
+      if (isColliding) {
+        console.log(`Caught item: ${item.type} (value: ${item.value}, weight: ${item.weight})`);
 
-    // PRIORITY ALGORITHM:
-    // 1. First check if any items are colliding with the hook right now
-    const collidingItems = itemsWithMetadata.filter(data => data.isColliding);
-    if (collidingItems.length > 0) {
-      // Get the closest colliding item
-      collidingItems.sort((a, b) => a.distance - b.distance);
-      const closestColliding = collidingItems[0];
+        // Set caught item and change hook state to pulling
+        setGameState(prev => ({
+          ...prev,
+          caughtItem: item,
+          hookState: 'pulling',
+        }));
 
-      // Get item corners for logging
-      const item = closestColliding.item;
-      const corners = {
-        topLeft: { x: item.x, y: item.y },
-        topRight: { x: item.x + item.width, y: item.y },
-        bottomLeft: { x: item.x, y: item.y + item.height },
-        bottomRight: { x: item.x + item.width, y: item.y + item.height },
-      };
+        // Add timeout to transition to retracting after a short pause
+        setTimeout(() => {
+          setGameState(prev => {
+            if (prev.hookState === 'pulling' && prev.caughtItem?.id === item.id) {
+              return {
+                ...prev,
+                hookState: 'retracting',
+              };
+            }
+            return prev;
+          });
+        }, 150);
 
-      console.log(
-        `Caught item: ${closestColliding.item.type} at distance ${closestColliding.distance.toFixed(
-          2
-        )}px`
-      );
-      console.log(`Item corners: TL(${corners.topLeft.x},${corners.topLeft.y}), 
-        TR(${corners.topRight.x},${corners.topRight.y}), 
-        BL(${corners.bottomLeft.x},${corners.bottomLeft.y}), 
-        BR(${corners.bottomRight.x},${corners.bottomRight.y})`);
-      console.log(`Hook position: (${hookEndX}, ${hookEndY})`);
+        // Trigger the callback
+        callback(item);
 
-      handleCaughtItem(closestColliding.item, callback);
-      return closestColliding.item;
-    }
-
-    // 2. Next, check if there are items directly in the hook's path
-    const itemsInPath = itemsWithMetadata.filter(data => data.isInHookPath);
-    if (itemsInPath.length > 0) {
-      // Get the closest item in path
-      itemsInPath.sort((a, b) => a.distance - b.distance);
-      const closestInPath = itemsInPath[0];
-
-      // Check if it's close enough to catch
-      const hookLength = calculateDistance(hookOriginX, hookOriginY, hookEndX, hookEndY);
-      if (closestInPath.distance < hookLength * 1.1) {
-        // This item is in path and within range - catch it
-        console.log(
-          `Catching item in path: ${
-            closestInPath.item.type
-          } at distance ${closestInPath.distance.toFixed(2)}px`
-        );
-        handleCaughtItem(closestInPath.item, callback);
-        return closestInPath.item;
-      } else {
-        // Item in path but not close enough yet
-        console.log(
-          `Item in path: ${closestInPath.item.type} at distance ${closestInPath.distance.toFixed(
-            2
-          )}px (waiting to catch)`
-        );
+        return item;
       }
     }
 
-    // For debugging: show the closest item
-    if (itemsWithMetadata.length > 0) {
-      itemsWithMetadata.sort((a, b) => a.distance - b.distance);
-      const closestItem = itemsWithMetadata[0];
-      console.log(
-        `Distance to closest item (${closestItem.item.type}): ${closestItem.distance.toFixed(
-          2
-        )} pixels, In Path: ${closestItem.isInHookPath}`
-      );
+    // Check if hook has reached maximum length
+    if (length >= GAME_CONFIG.ROPE_MAX_LENGTH) {
+      // Automatically start retracting
+      setGameState(prev => ({
+        ...prev,
+        hookState: 'retracting',
+      }));
     }
 
+    // No collision detected
     return null;
   };
 
-  // Function to handle caught items
-  const handleCaughtItem = (item: GameItem, callback: (item: GameItem) => void) => {
-    // Set game state to pulling
+  // Set hook state directly
+  const setHookState = (newHookState: HookState) => {
     setGameState(prev => ({
       ...prev,
-      caughtItem: item,
-      hookState: 'pulling',
+      hookState: newHookState,
     }));
-
-    // Add timeout to transition to retracting after a short pause
-    setTimeout(() => {
-      setGameState(prev => {
-        if (prev.hookState === 'pulling' && prev.caughtItem?.id === item.id) {
-          return {
-            ...prev,
-            hookState: 'retracting',
-          };
-        }
-        return prev;
-      });
-    }, 150);
-
-    callback(item);
   };
-
-  // Helper function to check if an item is directly in the hook's path
-  const isItemInHookPath = (
-    originX: number,
-    originY: number,
-    hookEndX: number,
-    hookEndY: number,
-    item: GameItem,
-    angleRad: number,
-    isLandscape: boolean
-  ): boolean => {
-    // Calculate all four corners of the item
-    const corners = {
-      topLeft: { x: item.x, y: item.y },
-      topRight: { x: item.x + item.width, y: item.y },
-      bottomLeft: { x: item.x, y: item.y + item.height },
-      bottomRight: { x: item.x + item.width, y: item.y + item.height },
-    };
-
-    // Calculate item center
-    const itemCenterX = item.x + item.width / 2;
-    const itemCenterY = item.y + item.height / 2;
-
-    // For landscape mode, use a more direct approach using corners
-    if (isLandscape) {
-      // Direction of hook movement (from origin to end)
-      const hookDirectionX = hookEndX - originX;
-
-      // Check which side the hook is approaching from
-      const isApproachingFromLeft = hookDirectionX > 0 && hookEndX < corners.topLeft.x;
-      const isApproachingFromRight = hookDirectionX < 0 && hookEndX > corners.topRight.x;
-
-      // If approaching from left, check alignment with left face
-      if (isApproachingFromLeft) {
-        // Check if hook's Y is between top and bottom of item (with margin)
-        const margin = 30; // Pixels of margin to make catching easier
-        const isYAligned =
-          hookEndY >= corners.topLeft.y - margin && hookEndY <= corners.bottomLeft.y + margin;
-
-        if (isYAligned) {
-          // Calculate how far hook is from left face
-          const distanceToFace = Math.abs(hookEndX - corners.topLeft.x);
-          // If close enough to left face, it's in path
-          return distanceToFace < 50; // Adjust this threshold as needed
-        }
-      }
-
-      // If approaching from right, check alignment with right face
-      else if (isApproachingFromRight) {
-        // Check if hook's Y is between top and bottom of item (with margin)
-        const margin = 30;
-        const isYAligned =
-          hookEndY >= corners.topRight.y - margin && hookEndY <= corners.bottomRight.y + margin;
-
-        if (isYAligned) {
-          // Calculate how far hook is from right face
-          const distanceToFace = Math.abs(hookEndX - corners.topRight.x);
-          // If close enough to right face, it's in path
-          return distanceToFace < 50; // Adjust this threshold as needed
-        }
-      }
-    }
-
-    // For portrait mode or fallback for landscape
-    else {
-      // Direction of hook movement (from origin to end)
-      const hookDirectionY = hookEndY - originY;
-
-      // Check which side the hook is approaching from
-      const isApproachingFromTop = hookDirectionY > 0 && hookEndY < corners.topLeft.y;
-      const isApproachingFromBottom = hookDirectionY < 0 && hookEndY > corners.bottomLeft.y;
-
-      // If approaching from top, check alignment with top face
-      if (isApproachingFromTop) {
-        // Check if hook's X is between left and right of item (with margin)
-        const margin = 30;
-        const isXAligned =
-          hookEndX >= corners.topLeft.x - margin && hookEndX <= corners.topRight.x + margin;
-
-        if (isXAligned) {
-          // Calculate how far hook is from top face
-          const distanceToFace = Math.abs(hookEndY - corners.topLeft.y);
-          // If close enough to top face, it's in path
-          return distanceToFace < 50;
-        }
-      }
-
-      // If approaching from bottom, check alignment with bottom face
-      else if (isApproachingFromBottom) {
-        // Check if hook's X is between left and right of item (with margin)
-        const margin = 30;
-        const isXAligned =
-          hookEndX >= corners.bottomLeft.x - margin && hookEndX <= corners.bottomRight.x + margin;
-
-        if (isXAligned) {
-          // Calculate how far hook is from bottom face
-          const distanceToFace = Math.abs(hookEndY - corners.bottomLeft.y);
-          // If close enough to bottom face, it's in path
-          return distanceToFace < 50;
-        }
-      }
-    }
-
-    // If the corner-based checks didn't return, use the traditional line-based check as fallback
-    // Calculate the line parameters from hook origin to hook end (line equation: ax + by + c = 0)
-    const a = hookEndY - originY;
-    const b = originX - hookEndX;
-    const c = hookEndX * originY - originX * hookEndY;
-
-    // Calculate distance from item center to the line
-    const lineDistance = Math.abs(a * itemCenterX + b * itemCenterY + c) / Math.sqrt(a * a + b * b);
-
-    // Check if item is in direction of hook movement
-    // Calculate relative position along the hook path
-    const dotProduct =
-      (itemCenterX - originX) * (hookEndX - originX) +
-      (itemCenterY - originY) * (hookEndY - originY);
-
-    // Item is in front of hook if dot product is positive
-    const isInFront = dotProduct > 0;
-
-    // Calculate distance from origin to item
-    const distanceToItem = calculateDistance(originX, originY, itemCenterX, itemCenterY);
-
-    // Check if item is within hook's maximum length
-    const hookLength = calculateDistance(originX, originY, hookEndX, hookEndY);
-    const isWithinRange = distanceToItem <= hookLength * 1.3; // Increased margin
-
-    // Define a threshold for how close to the line the item needs to be
-    const hookSize = GAME_CONFIG.HOOK_SIZE || 30;
-    const pathThreshold = isLandscape
-      ? Math.max(item.width, item.height) + hookSize + 25 // Landscape
-      : Math.max(item.width, item.height) + hookSize + 20; // Portrait
-
-    // Fallback check
-    return lineDistance < pathThreshold && isInFront && isWithinRange;
-  };
-
-  // Helper function to calculate distance between two points
-  const calculateDistance = (x1: number, y1: number, x2: number, y2: number): number => {
-    return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-  };
-  // Helper function to calculate distance between two points
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -1020,12 +699,8 @@ export const useGameEngine = () => {
       }
     };
   }, []);
-  const setHookState = (newHookState: HookState) => {
-    setGameState(prev => ({
-      ...prev,
-      hookState: newHookState,
-    }));
-  };
+
+  // Return game state and methods
   return {
     gameState,
     startGame,
